@@ -204,6 +204,57 @@ print("bundle_payload: scrub removed %d (%s)" % (
     len(removed), ", ".join(removed[:12]) or "nothing"))
 PY
 
+# A Java .class file starts with 0xCAFEBABE, which is also the fat Mach-O
+# magic. installd and SideStore parse every file in the bundle by its magic,
+# so a loose class file fails the install ("FAT slice bounds exceed file
+# size"). Each baked classpath directory that holds class files is packed into
+# a jar beside it, and baked.cp names the jar. Fabric reads both the same way.
+# A Mach-O here would be unsigned and fail the install too. Either one left
+# anywhere in the payload fails the build.
+python3 - "$DEST" <<'PY'
+import os, shutil, sys, zipfile
+dest = sys.argv[1]
+root = os.path.join(dest, "root")
+MAGIC = {b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca",
+         b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce"}
+
+def magic(path):
+    with open(path, "rb") as f:
+        return f.read(4) in MAGIC
+
+cp_path = os.path.join(dest, "baked.cp")
+lines = open(cp_path, encoding="utf-8").read().splitlines()
+out, packed = [], []
+for line in lines:
+    entry = line.strip()
+    d = os.path.join(root, entry)
+    if entry and not entry.startswith("#") and os.path.isdir(d) and not os.path.islink(d):
+        files = sorted(os.path.join(r, f) for r, _, fs in os.walk(d) for f in fs if f != ".DS_Store")
+        if any(magic(p) for p in files):
+            jar = d.rstrip("/") + ".jar"
+            with zipfile.ZipFile(jar, "w", zipfile.ZIP_DEFLATED) as z:
+                for p in files:
+                    info = zipfile.ZipInfo(os.path.relpath(p, d), date_time=(1980, 1, 1, 0, 0, 0))
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    z.writestr(info, open(p, "rb").read())
+            shutil.rmtree(d)
+            out.append(line.replace(entry, entry.rstrip("/") + ".jar"))
+            packed.append("%s (%d files)" % (entry, len(files)))
+            continue
+    out.append(line)
+open(cp_path, "w", encoding="utf-8").write("\n".join(out) + "\n")
+
+bad = [os.path.relpath(os.path.join(r, f), dest)
+       for r, _, fs in os.walk(dest) for f in fs
+       if not os.path.islink(os.path.join(r, f)) and magic(os.path.join(r, f))]
+if bad:
+    sys.stderr.write("error: bundle_payload: class or Mach-O files would fail the install:\n")
+    for b in bad[:40]:
+        sys.stderr.write("  " + b + "\n")
+    sys.exit(1)
+print("bundle_payload: packed %s" % (", ".join(packed) or "nothing"))
+PY
+
 # Identity of the bytes we ship, after the scrub. A later app update whose
 # hash differs refreshes the symlinks and does not replace options or worlds
 # the player has created.

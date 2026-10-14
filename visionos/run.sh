@@ -262,12 +262,26 @@ print(phys[0]["identifier"])
 
   # Compile paths in this app and in the reused dylibs name the build
   # machine. Rewrite those copies, then sign again with the identity
-  # xcodebuild just used. The identity name is not printed.
+  # xcodebuild just used. The identity name is not printed. The app's
+  # entitlements (application-identifier first of all) are read before the
+  # re-sign and given back to it: a plain --force drops them, and installd
+  # then refuses the IPA ("integrity could not be verified"). Nested code is
+  # signed one by one without entitlements, never with --deep.
+  ENTS="build/dd-device-$KLT_NAME/app-entitlements.plist"
+  codesign -d --entitlements - --xml "$APP" > "$ENTS" 2>/dev/null
+  grep -q application-identifier "$ENTS" \
+    || { echo "!! $APP has no application-identifier before the re-sign"; exit 1; }
   python3 scrub_paths.py "$APP"
   IDENT=$(codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1)
   if [ -n "$IDENT" ]; then
-    codesign --force --deep --sign "$IDENT" --timestamp=none "$APP"
+    for fw in "$APP"/Frameworks/*; do
+      codesign --force --sign "$IDENT" --timestamp=none "$fw"
+    done
+    codesign --force --sign "$IDENT" --timestamp=none --entitlements "$ENTS" "$APP"
   fi
+  codesign --verify --deep --strict "$APP"
+  codesign -d --entitlements - "$APP" 2>/dev/null | grep -q application-identifier \
+    || { echo "!! re-signed $APP lost its entitlements"; exit 1; }
 
   if [ -n "${KL_NO_INSTALL:-}" ]; then
     # Signed .app only. Packaging the IPA is a local zip; nothing is sent to the headset.

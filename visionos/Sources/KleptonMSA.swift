@@ -840,16 +840,12 @@ final class MSAAccounts: ObservableObject {
 
     /// The Minecraft row, whatever KL_MSA says (the themed launcher keys on it).
     nonisolated static var isMinecraft: Bool {
-        // kl_app_target_name() is "(unconfigured)" until boot, so the window
-        // cannot ask the C target yet. KL_TARGET names the guest when a
-        // launch sets it. A Home Screen launch sets nothing. The private
-        // bundle id ends in .vivecraft. The public id is
-        // com.rebelancap.vivecraft-visionos, which does not.
-        if let env = ProcessInfo.processInfo.environment["KL_TARGET"] {
-            return env == "vivecraft"
-        }
-        let id = Bundle.main.bundleIdentifier ?? ""
-        return id.hasSuffix(".vivecraft") || id.hasSuffix(".vivecraft-visionos")
+        // kl_app_target_name() is "(unconfigured)" until boot, so this asks
+        // for the target the same way configure will: KL_TARGET, then the
+        // build's compiled-in default. Not the bundle id: SideStore installs
+        // under <id>.<team id>, and a suffix test then showed the generic
+        // Klepton window instead of the launcher.
+        String(cString: kl_app_target_now_name()) == "vivecraft"
     }
 
     enum AddState: Equatable {

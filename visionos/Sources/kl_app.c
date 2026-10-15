@@ -102,6 +102,11 @@ static const kl_target *target_now(void) {
     return kl_target_lookup(kl_env_str("KL_TARGET", KL_TARGET_DEFAULT));
 }
 
+const char *kl_app_target_now_name(void) {
+    const kl_target *t = target_now();
+    return t ? t->name : "";
+}
+
 int kl_app_target_is_native(void) {
     const kl_target *t = target_now();
     return t && t->kind == KL_GUEST_NATIVE;

@@ -15,7 +15,7 @@ A simulator build does not need `KLEPTON_TEAM`. `run.sh` sets `CODE_SIGNING_ALLO
 
 The public bundle id is `com.rebelancap.vivecraft-visionos`. It is the `bundle` field on the vivecraft row in `visionos/targets.py`. `bundle_for()` returns that string and does not prefix a login name. `KLEPTON_BUNDLE_ID` still overrides it. SideStore matches this id.
 
-`CFBundleShortVersionString` / `MARKETING_VERSION` defaults to **1.0.0** in `visionos/gen_xcodeproj.py` (`KLEPTON_MARKETING_VERSION` overrides it). `CFBundleVersion` defaults to `1` (`KLEPTON_BUILD_VERSION`). The short version, the GitHub release, and the OTA version are the same string, 1.0.0. The display name is `Vivecraft`. The Xcode product name stays `KleptonVivecraft`.
+`CFBundleShortVersionString` / `MARKETING_VERSION` defaults to **1.0.1** in `visionos/gen_xcodeproj.py` (`KLEPTON_MARKETING_VERSION` overrides it). `CFBundleVersion` defaults to `1` (`KLEPTON_BUILD_VERSION`). The short version, the GitHub release, and the OTA version are the same string, 1.0.1. The display name is `Vivecraft`. The Xcode product name stays `KleptonVivecraft`.
 
 ## Machine
 

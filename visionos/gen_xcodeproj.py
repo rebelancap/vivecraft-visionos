@@ -233,7 +233,7 @@ TEAM = detect_team()
 TEAM_LINE = f"\t\t\t\tDEVELOPMENT_TEAM = {TEAM};\n" if TEAM else ""
 # First public release. Short version is what SideStore compares. The build
 # number is separate and stays a plain integer unless KLEPTON_BUILD_VERSION is set.
-MARKETING_VERSION = os.environ.get("KLEPTON_MARKETING_VERSION", "1.0.0")
+MARKETING_VERSION = os.environ.get("KLEPTON_MARKETING_VERSION", "1.0.1")
 CURRENT_PROJECT_VERSION = os.environ.get("KLEPTON_BUILD_VERSION", "1")
 
 _n = [0]

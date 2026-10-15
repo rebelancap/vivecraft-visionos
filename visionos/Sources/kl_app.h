@@ -137,6 +137,10 @@ const char *kl_app_target_name(void);
 int         kl_app_target_is_steamlink(void);
 // The native-dylib guest (the vivecraft row): no APK; its window is flat (M1).
 int         kl_app_target_is_native(void);
+// The guest this build is for, from KL_TARGET or the compiled-in default. Safe
+// before kl_app_configure. Never derive it from the bundle id: SideStore
+// rewrites that (it appends the signer's team id).
+const char *kl_app_target_now_name(void);
 // Scene policy, per target — read from the SwiftUI scene body, so both are safe
 // to call before kl_app_configure (see target_now in kl_app.c).
 //   own_hands     the guest draws its own hands; the system must not draw the

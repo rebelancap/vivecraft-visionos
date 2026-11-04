@@ -2,6 +2,9 @@ import SwiftUI
 import UIKit
 import Metal
 import QuartzCore
+#if os(visionOS)
+import GameController
+#endif
 
 // Steam Link's 2D configuration shell, in a visionOS window.
 //
@@ -81,6 +84,22 @@ final class KleptonShellView: UIView {
         sd.sAddressMode = .clampToEdge
         sd.tAddressMode = .clampToEdge
         sampler = device.makeSamplerState(descriptor: sd)
+
+        #if os(visionOS)
+        // Claim the gamepad for the Game Controller framework. Without this
+        // interaction visionOS converts a paired gamepad into gaze-targeted
+        // pinch events for whatever view the person looks at (GCEventInteraction.h),
+        // so GCController's sticks read nothing useful and Options/Create are
+        // left to the system (screenshot). MCWindowedInput reads the pad through
+        // GameController, so the view that hosts the game's layer owns it.
+        // Pinches with the hands are not gamepad events and still reach the
+        // DragGesture in ShellWindow.
+        if kl_app_target_is_native() != 0 {
+            let gc = GCEventInteraction()
+            gc.handledEventTypes = .gamepad
+            addInteraction(gc)
+        }
+        #endif
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -198,7 +217,13 @@ final class KleptonShellView: UIView {
 struct ShellSurface: UIViewRepresentable {
     /// Filled in by makeUIView so the gesture handlers can scale into guest
     /// pixels. A class box because a struct View is recreated constantly.
-    final class Box { weak var view: KleptonShellView? }
+    final class Box {
+        weak var view: KleptonShellView?
+        /// The window scene whose shape ShellWindow locked to the guest's
+        /// aspect, so the lock can be undone when the game's picture goes.
+        weak var lockedScene: UIWindowScene?
+        var lockedAspect: CGSize = .zero
+    }
     let box: Box
 
     func makeUIView(context: Context) -> UIView {
@@ -228,11 +253,9 @@ struct ShellWindow: View {
     @ObservedObject private var padInput = MCWindowedInput.shared
     @Environment(\.scenePhase) private var inputScenePhase
     @FocusState private var keyboardFocused: Bool
-    // The guest's own surface size once it has presented a frame:
-    // the native guest's flat window is KL_NATIVE_SIZE, 1280x720 by default,
-    // where Steam Link's shell was 1280x800. Until the first frame the old
-    // shape stands, so the Steam Link shell is unchanged.
-    @State private var aspect = CGSize(width: 1280, height: 800)
+    // The guest's own surface size is read from its frames (box.view.guestW/H):
+    // the native guest's flat window is KL_NATIVE_SIZE, 1280x720 by default.
+    // Until the first frame the window keeps the launcher's shape.
     private let sizePoll = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -256,12 +279,14 @@ struct ShellWindow: View {
                         .allowsHitTesting(false)
                 }
             }
-            .aspectRatio(aspect, contentMode: .fit)
+            // No .aspectRatio(.fit) letterbox: the surface fills the window and
+            // the WINDOW is held to the guest's shape instead (lockWindow), so
+            // there are no bars at any size the person drags it to.
             .onReceive(sizePoll) { _ in
                 guard let v = box.view, v.guestW > 0, v.guestH > 0 else { return }
-                let s = CGSize(width: v.guestW, height: v.guestH)
-                if s != aspect { aspect = s }
+                lockWindow(to: CGSize(width: v.guestW, height: v.guestH))
             }
+            .onDisappear { unlockWindow() }
             // A drag with zero movement is still a tap here, which is what makes
             // one recogniser enough for both: visionOS delivers an indirect
             // pinch as a drag whose location is where the person was looking.
@@ -280,6 +305,40 @@ struct ShellWindow: View {
     }
 
     private enum Phase { case down, up }
+
+    /// The guest's framebuffer is fixed for the process (KL_NATIVE_SIZE, read
+    /// before ANGLE, libklglfw and kl_glfb come up — kl_app.c), so the window
+    /// follows the game rather than the game following the window: one resize
+    /// to the guest's aspect at the current width, then uniform-only resizing,
+    /// which visionOS enforces on every drag of the window corner.
+    private func lockWindow(to guest: CGSize) {
+        #if os(visionOS)
+        guard let window = box.view?.window, let scene = window.windowScene else { return }
+        if box.lockedScene === scene, box.lockedAspect == guest { return }
+        let width = max(640, window.bounds.width)
+        let size = CGSize(width: width, height: (width * guest.height / guest.width).rounded())
+        box.lockedScene = scene
+        box.lockedAspect = guest
+        NSLog("[shell] window locked to the game's aspect: \(Int(guest.width))x\(Int(guest.height)) -> \(Int(size.width))x\(Int(size.height)) pt, uniform resizing")
+        scene.requestGeometryUpdate(.Vision(size: size, resizingRestrictions: .uniform)) { error in
+            NSLog("[shell] window aspect lock refused: \(error)")
+        }
+        #endif
+    }
+
+    /// Back to the launcher's shape and free resizing (KleptonApp's
+    /// .defaultSize, 1280x800) once the game's picture leaves this window.
+    private func unlockWindow() {
+        #if os(visionOS)
+        guard let scene = box.lockedScene else { return }
+        box.lockedScene = nil
+        box.lockedAspect = .zero
+        NSLog("[shell] window unlocked: 1280x800 pt, freeform resizing")
+        scene.requestGeometryUpdate(.Vision(size: CGSize(width: 1280, height: 800), resizingRestrictions: .freeform)) { error in
+            NSLog("[shell] window unlock refused: \(error)")
+        }
+        #endif
+    }
 
     private func send(_ p: CGPoint, phase: Phase) {
         guard let v = box.view, v.guestW > 0, v.guestH > 0 else { return }

@@ -7,6 +7,8 @@ struct MCWindowedPadSample {
     var rightX: Double = 0, rightY: Double = 0
     var jump = false, inventory = false, pause = false
     var attack = false, use = false, previousSlot = false, nextSlot = false
+    var sprint = false
+    var dpadUp = false, dpadDown = false, dpadLeft = false, dpadRight = false
 }
 
 enum MCWindowedPadEvent: Equatable {
@@ -36,7 +38,9 @@ struct MCWindowedPadState {
         let wants: [(Int32, Bool)] = [
             (87, axis(s.leftY, key: 87)), (83, axis(-s.leftY, key: 83)),
             (65, axis(-s.leftX, key: 65)), (68, axis(s.leftX, key: 68)),
-            (32, s.jump), (69, s.inventory), (256, s.pause)
+            (32, s.jump), (69, s.inventory), (256, s.pause),
+            (341, s.sprint),                                   // L3 -> left Control (sprint)
+            (265, s.dpadUp), (264, s.dpadDown), (263, s.dpadLeft), (262, s.dpadRight)
         ]
         for (key, down) in wants where down != keys.contains(key) {
             if down { keys.insert(key) } else { keys.remove(key) }
@@ -85,7 +89,7 @@ final class MCWindowedInput: ObservableObject {
     var hint: String {
         controllerName == nil
             ? "Pair a DualSense to play in this window. Pinch selects menu items."
-            : "Left stick move · Right stick look · Cross jump · Triangle inventory · R2 select/attack · L2 use · L1/R1 hotbar · Circle/Options pause"
+            : "Left stick move · Right stick look · Cross jump · Triangle inventory · R2 select/attack · L2 use · L1/R1 hotbar · L3 sprint · Circle/Options pause"
     }
 
     private init() {
@@ -112,7 +116,10 @@ final class MCWindowedInput: ObservableObject {
     private func updatePump() {
         guard windows.values.contains(true) else {
             timer?.invalidate(); timer = nil
-            release(force: true); return
+            release(force: true)
+            claimSystemButtons(controller, false)
+            controller = nil
+            return
         }
         guard timer == nil else { return }
         chooseController()
@@ -124,7 +131,7 @@ final class MCWindowedInput: ObservableObject {
         RunLoop.main.add(t, forMode: .common)
     }
     private func chooseController(excluding disconnected: ObjectIdentifier? = nil) {
-        guard !windows.isEmpty else { return }
+        guard windows.values.contains(true) else { return }
         let candidates = GCController.controllers().filter {
             if ObjectIdentifier($0) == disconnected { return false }
             guard $0.extendedGamepad != nil else { return false }
@@ -134,8 +141,31 @@ final class MCWindowedInput: ObservableObject {
         }
         if let controller, candidates.contains(where: { $0 === controller }) { return }
         release()
+        claimSystemButtons(controller, false)
         controller = candidates.first
+        claimSystemButtons(controller, true)
         controllerName = controller?.vendorName ?? (controller == nil ? nil : "Game controller")
+        NSLog("[windowed-pad] controller: %@ [%@] (of %d connected: %@)", controllerName ?? "none",
+              controller?.productCategory ?? "-", GCController.controllers().count,
+              GCController.controllers().map { "\($0.vendorName ?? "?")/\($0.productCategory)/\($0.extendedGamepad == nil ? "no-extended" : "extended")" }
+                .joined(separator: ", "))
+    }
+    /// Menu/Options, Create/Share/View and a pad's own capture button
+    /// (Backbone, Switch Pro) are bound to system gestures by default — the
+    /// screenshot/recording capture — so the game never saw a pause press.
+    /// Every element except Home is claimed while a game window owns the pad,
+    /// and handed back when it stops. Home (PS / Xbox / Backbone) stays the
+    /// system's, so the person can always leave.
+    private func claimSystemButtons(_ c: GCController?, _ claim: Bool) {
+        guard let c, let pad = c.extendedGamepad else { return }
+        let state: GCControllerElement.SystemGestureState = claim ? .disabled : .enabled
+        let home = pad.buttonHome
+        var bound: [String] = []
+        for element in c.physicalInputProfile.allElements where element !== home {
+            if claim, element.isBoundToSystemGesture { bound.append(element.localizedName ?? "?") }
+            element.preferredSystemGestureState = state
+        }
+        if claim { NSLog("[windowed-pad] system gestures disabled (bound before: %@)", bound.joined(separator: ", ")) }
     }
     private func tick() {
         guard windows.values.contains(true), kl_app_native_windowed_ready() != 0,
@@ -158,6 +188,12 @@ final class MCWindowedInput: ObservableObject {
         sample.jump = gamepad.buttonA.isPressed
         sample.inventory = gamepad.buttonY.isPressed
         sample.pause = gamepad.buttonB.isPressed || gamepad.buttonMenu.isPressed
+            || (gamepad.buttonOptions?.isPressed ?? false)
+        sample.sprint = gamepad.leftThumbstickButton?.isPressed ?? false
+        sample.dpadUp = gamepad.dpad.up.isPressed
+        sample.dpadDown = gamepad.dpad.down.isPressed
+        sample.dpadLeft = gamepad.dpad.left.isPressed
+        sample.dpadRight = gamepad.dpad.right.isPressed
         sample.attack = gamepad.rightTrigger.isPressed
         sample.use = gamepad.leftTrigger.isPressed
         sample.previousSlot = gamepad.leftShoulder.isPressed

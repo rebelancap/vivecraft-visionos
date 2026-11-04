@@ -2771,7 +2771,7 @@ static void *native_egl_proc(const char *name) {
 }
 
 // The flat window's input (kl_mono, ShellWindow) -> libklglfw's GLFW event ring.
-enum { KLG_KEY = 1, KLG_CHAR = 2, KLG_BUTTON = 3, KLG_CURSOR = 4, KLG_SCROLL = 5 };
+enum { KLG_KEY = 1, KLG_CHAR = 2, KLG_BUTTON = 3, KLG_CURSOR = 4, KLG_SCROLL = 5, KLG_WINDOW_SIZE = 7 };
 static int g_native_button = -1;
 // Main-thread window/controller input. These functions address the SAME
 // libklglfw module native_boot loaded; there is no new guest or frame loop.
@@ -2781,12 +2781,30 @@ static unsigned char g_flat_keys[512], g_flat_pad_buttons[3], g_flat_pointer_but
 static double g_flat_x, g_flat_y, g_flat_observed_x, g_flat_observed_y;
 static int g_flat_cursor_known, g_flat_last_mode;
 static unsigned g_flat_run_frame_base;
+static int g_flat_size_sent;
+
+// Tell Minecraft its window really is KL_NATIVE_SIZE. Its Window keeps the
+// size it ASKED for (DisplayData) as the space cursor positions are measured
+// in, while the framebuffer is what libklglfw made; libklglfw never sends a
+// resize, so on the simulator every menu hover/click landed about 1.6x right
+// and 1.4x down of the pointer (the VR toggle answered a press aimed at
+// Singleplayer). One window-size event per run, once the run has presented a
+// frame (Minecraft's callbacks are installed by then), makes the two agree.
+// In-world look is relative motion and was never affected.
+static void native_flat_sync_size(void) {
+    if (g_flat_size_sent || !g_native_push || native_vr()) return;
+    if (kl_mono_frame_count() == g_flat_run_frame_base) return;
+    g_flat_size_sent = 1;
+    g_native_push(KLG_WINDOW_SIZE, g_native_w, g_native_h, 0, 0, 0, 0);
+    fprintf(stderr, "  [native] flat window size sent to the game: %dx%d\n", g_native_w, g_native_h);
+}
 
 int kl_app_native_windowed_ready(void) {
     if (!target_is_native() || native_vr() || !g_native_push || !g_native_cursor_mode || !g_native_cursor_pos) return 0;
     pthread_mutex_lock(&g_nrun_mu);
     int ready = g_nrun_active && !g_nrun_done && !g_nrun_closed && kl_mono_frame_count() != g_flat_run_frame_base;
     pthread_mutex_unlock(&g_nrun_mu);
+    if (ready) native_flat_sync_size();
     return ready;
 }
 int kl_app_native_windowed_cursor_mode(void) {
@@ -2860,6 +2878,7 @@ void kl_app_native_windowed_release_all(void) {
 
 static void native_pointer(int state, int action, float x, float y) {
     if (!g_native_push) return;
+    native_flat_sync_size();
     // A scroll carries wheel deltas in x/y, not a position: it must neither
     // move the cursor nor become the flat-input tracker's "known" position
     // (the next gamepad move would continue from roughly (0, ±1)).
@@ -3106,6 +3125,16 @@ static int native_build_argv(void) {
     if (!jvm_extra_done) { native_vr_args(); native_argv_split("KL_MC_JVM_ARGS"); }
     native_argv_split("KL_MC_ARGS");
     native_argv_set("--gameDir", g_native_gamedir);
+    // Ask for the window libklglfw will actually make (KL_NATIVE_SIZE) rather
+    // than Minecraft's 854x480 default. On its own this did not fix the menu
+    // pointer — native_flat_sync_size's window-size event does — but a request
+    // that matches the real window is the right input either way. VR is left
+    // as it was: its GUI is Vivecraft's and its clicks were measured there.
+    if (!native_vr()) {
+        char v[16];
+        snprintf(v, sizeof v, "%d", g_native_w); native_argv_set("--width", v);
+        snprintf(v, sizeof v, "%d", g_native_h); native_argv_set("--height", v);
+    }
     native_launcher_args();
     native_msa_args();
     printf("  [native] classpath: %d entries under %s/root\n", entries, g_native_root);
@@ -3393,6 +3422,7 @@ static int native_run(void) {
     pthread_t t;
     pthread_mutex_lock(&g_nrun_mu);
     g_flat_run_frame_base = kl_mono_frame_count();
+    g_flat_size_sent = 0;
     g_flat_cursor_known = 0;
     g_nrun_active = 1;
     g_nrun_done = 0;

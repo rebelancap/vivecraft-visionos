@@ -61,7 +61,11 @@ Pair the gamepad in visionOS Settings → Bluetooth. Button names below are Dual
 | Jump · Inventory | Cross · Triangle |
 | Attack / select · Use | R2 · L2 |
 | Previous · next hotbar slot | L1 · R1 |
+| Sprint | L3 (press the left stick) |
+| Menu navigation | D-pad (arrow keys) |
 | Pause | Circle or Options |
+
+The window keeps the game's shape while you play: drag a corner to resize it and it scales without black bars.
 
 Sense controllers and hand-tracking gestures drive Immersive VR. They do not drive the windowed game.
 

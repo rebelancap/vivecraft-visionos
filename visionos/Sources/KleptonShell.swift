@@ -224,11 +224,44 @@ struct ShellSurface: UIViewRepresentable {
 struct ShellWindow: View {
     @State private var box = ShellSurface.Box()
     @State private var typed = ""
+    @State private var inputWindowID = UUID()
+    @ObservedObject private var padInput = MCWindowedInput.shared
+    @Environment(\.scenePhase) private var inputScenePhase
     @FocusState private var keyboardFocused: Bool
+    // The guest's own surface size once it has presented a frame:
+    // the native guest's flat window is KL_NATIVE_SIZE, 1280x720 by default,
+    // where Steam Link's shell was 1280x800. Until the first frame the old
+    // shape stands, so the Steam Link shell is unchanged.
+    @State private var aspect = CGSize(width: 1280, height: 800)
+    private let sizePoll = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ShellSurface(box: box)
-            .aspectRatio(CGSize(width: 1280, height: 800), contentMode: .fit)
+            .onAppear {
+                guard kl_app_target_is_native() != 0 else { return }
+                padInput.window(inputWindowID, active: inputScenePhase == .active)
+            }
+            .onChange(of: inputScenePhase) { _, phase in
+                guard kl_app_target_is_native() != 0 else { return }
+                padInput.window(inputWindowID, active: phase == .active)
+            }
+            .onDisappear { padInput.removeWindow(inputWindowID) }
+            .overlay(alignment: .top) {
+                if kl_app_target_is_native() != 0 {
+                    Text(padInput.hint)
+                        .font(.caption2)
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.black.opacity(0.65))
+                        .allowsHitTesting(false)
+                }
+            }
+            .aspectRatio(aspect, contentMode: .fit)
+            .onReceive(sizePoll) { _ in
+                guard let v = box.view, v.guestW > 0, v.guestH > 0 else { return }
+                let s = CGSize(width: v.guestW, height: v.guestH)
+                if s != aspect { aspect = s }
+            }
             // A drag with zero movement is still a tap here, which is what makes
             // one recogniser enough for both: visionOS delivers an indirect
             // pinch as a drag whose location is where the person was looking.

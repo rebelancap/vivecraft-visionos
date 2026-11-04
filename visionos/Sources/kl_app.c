@@ -5,6 +5,7 @@
 #include <sys/sysctl.h>
 #include <mach/mach.h>          // task_info(TASK_VM_INFO) — the heartbeat's footprint
 #include <pthread.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2772,14 +2773,100 @@ static void *native_egl_proc(const char *name) {
 // The flat window's input (kl_mono, ShellWindow) -> libklglfw's GLFW event ring.
 enum { KLG_KEY = 1, KLG_CHAR = 2, KLG_BUTTON = 3, KLG_CURSOR = 4, KLG_SCROLL = 5 };
 static int g_native_button = -1;
+// Main-thread window/controller input. These functions address the SAME
+// libklglfw module native_boot loaded; there is no new guest or frame loop.
+static int (*g_native_cursor_mode)(void);
+static void (*g_native_cursor_pos)(double *, double *);
+static unsigned char g_flat_keys[512], g_flat_pad_buttons[3], g_flat_pointer_buttons[3];
+static double g_flat_x, g_flat_y, g_flat_observed_x, g_flat_observed_y;
+static int g_flat_cursor_known, g_flat_last_mode;
+static unsigned g_flat_run_frame_base;
+
+int kl_app_native_windowed_ready(void) {
+    if (!target_is_native() || native_vr() || !g_native_push || !g_native_cursor_mode || !g_native_cursor_pos) return 0;
+    pthread_mutex_lock(&g_nrun_mu);
+    int ready = g_nrun_active && !g_nrun_done && !g_nrun_closed && kl_mono_frame_count() != g_flat_run_frame_base;
+    pthread_mutex_unlock(&g_nrun_mu);
+    return ready;
+}
+int kl_app_native_windowed_cursor_mode(void) {
+    return kl_app_native_windowed_ready() ? g_native_cursor_mode() : 0;
+}
+static void native_flat_button(int button, int down, int pointer) {
+    if (button < 0 || button >= 3 || !g_native_push) return;
+    unsigned char *owner = pointer ? g_flat_pointer_buttons : g_flat_pad_buttons;
+    int before = g_flat_pad_buttons[button] || g_flat_pointer_buttons[button];
+    owner[button] = down != 0;
+    int after = g_flat_pad_buttons[button] || g_flat_pointer_buttons[button];
+    if (before != after) g_native_push(KLG_BUTTON, button, after, 0, 0, 0, 0);
+}
+void kl_app_native_windowed_key(int key, int down) {
+    if (key < 0 || key >= (int)sizeof g_flat_keys || !g_native_push) return;
+    if (down && !kl_app_native_windowed_ready()) return;
+    down = down != 0;
+    if (g_flat_keys[key] == down) return;
+    g_flat_keys[key] = down;
+    g_native_push(KLG_KEY, key, 0, down, 0, 0, 0);
+}
+void kl_app_native_windowed_button(int button, int down) {
+    if (down && !kl_app_native_windowed_ready()) return;
+    native_flat_button(button, down, 0);
+}
+static void native_flat_note_pointer(double x, double y) {
+    if (!isfinite(x) || !isfinite(y)) return;
+    g_flat_x = x; g_flat_y = y; g_flat_cursor_known = 1;
+    if (g_native_cursor_pos) g_native_cursor_pos(&g_flat_observed_x, &g_flat_observed_y);
+    if (g_native_cursor_mode) g_flat_last_mode = g_native_cursor_mode();
+}
+void kl_app_native_windowed_move(double dx, double dy) {
+    if (!kl_app_native_windowed_ready() || !isfinite(dx) || !isfinite(dy)) return;
+    double observed_x = 0, observed_y = 0;
+    g_native_cursor_pos(&observed_x, &observed_y);
+    int mode = g_native_cursor_mode();
+    // The exported position changes when Minecraft warps the cursor. Ring
+    // injection itself does not change it, so retain our accumulated position
+    // unless the game warped or changed grab mode. Pinch updates it as well.
+    if (!g_flat_cursor_known || mode != g_flat_last_mode ||
+        observed_x != g_flat_observed_x || observed_y != g_flat_observed_y) {
+        g_flat_x = isfinite(observed_x) ? observed_x : 0;
+        g_flat_y = isfinite(observed_y) ? observed_y : 0;
+        g_flat_cursor_known = 1;
+    }
+    g_flat_observed_x = observed_x; g_flat_observed_y = observed_y; g_flat_last_mode = mode;
+    g_flat_x += dx; g_flat_y += dy;
+    if (mode != 0x34003) { // GLFW_CURSOR_DISABLED: unbounded deltas for MouseHandler
+        g_flat_x = fmax(0, fmin(g_native_w - 1, g_flat_x));
+        g_flat_y = fmax(0, fmin(g_native_h - 1, g_flat_y));
+    }
+    g_native_push(KLG_CURSOR, 0, 0, 0, 0, g_flat_x, g_flat_y);
+}
+void kl_app_native_windowed_scroll(double y) {
+    if (kl_app_native_windowed_ready() && isfinite(y)) g_native_push(KLG_SCROLL, 0, 0, 0, 0, 0, y);
+}
+void kl_app_native_windowed_release_all(void) {
+    // Releases remain legal after the guest stops accepting new presses.
+    for (int key = 0; key < (int)sizeof g_flat_keys; key++) {
+        if (g_flat_keys[key] && g_native_push) g_native_push(KLG_KEY, key, 0, 0, 0, 0, 0);
+        g_flat_keys[key] = 0;
+    }
+    for (int button = 0; button < 3; button++) {
+        if ((g_flat_pad_buttons[button] || g_flat_pointer_buttons[button]) && g_native_push)
+            g_native_push(KLG_BUTTON, button, 0, 0, 0, 0, 0);
+        g_flat_pad_buttons[button] = g_flat_pointer_buttons[button] = 0;
+    }
+    g_native_button = -1;
+}
+
+
 static void native_pointer(int state, int action, float x, float y) {
     if (!g_native_push) return;
+    native_flat_note_pointer(x, y);
     g_native_push(KLG_CURSOR, 0, 0, 0, 0, x, y);
     if (action == KL_MONO_DOWN) {
         g_native_button = (state & KL_MONO_BTN_SECONDARY) ? 1 : (state & KL_MONO_BTN_TERTIARY) ? 2 : 0;
-        g_native_push(KLG_BUTTON, g_native_button, 1, 0, 0, 0, 0);
+        native_flat_button(g_native_button, 1, 1);
     } else if (action == KL_MONO_UP && g_native_button >= 0) {
-        g_native_push(KLG_BUTTON, g_native_button, 0, 0, 0, 0, 0);
+        native_flat_button(g_native_button, 0, 1);
         g_native_button = -1;
     } else if (action == KL_MONO_SCROLL) {
         g_native_push(KLG_SCROLL, 0, 0, 0, 0, x, y);
@@ -3075,6 +3162,8 @@ static int native_boot(void) {
     // 4. libklglfw's platform side.
     void *gf = native_open("libklglfw", RTLD_NOW | RTLD_LOCAL);
     g_native_push = gf ? (void (*)(int, int, int, int, int, double, double))dlsym(gf, "klglfw_push_event") : NULL;
+    g_native_cursor_mode = gf ? (int (*)(void))dlsym(gf, "klglfw_get_cursor_mode") : NULL;
+    g_native_cursor_pos = gf ? (void (*)(double *, double *))dlsym(gf, "klglfw_get_cursor_pos") : NULL;
     printf("  [native] input: %s\n", g_native_push ? "window pointer/keys -> klglfw_push_event"
                                                   : "NONE (libklglfw has no klglfw_push_event)");
     void (*set_term)(void (*)(void)) = gf ? (void (*)(void (*)(void)))dlsym(gf, "klglfw_set_terminate_hook") : NULL;
@@ -3301,6 +3390,8 @@ static int native_run(void) {
     kl_native_guest_qos_install();
     pthread_t t;
     pthread_mutex_lock(&g_nrun_mu);
+    g_flat_run_frame_base = kl_mono_frame_count();
+    g_flat_cursor_known = 0;
     g_nrun_active = 1;
     g_nrun_done = 0;
     g_nrun_closed = 0;

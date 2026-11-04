@@ -53,10 +53,14 @@ enum Immersive {
     // kl_app_configure. Both call sites are inside boot(), after configure has
     // returned; the scene body reads `mixed`, not this.
     static var wanted: Bool {
-        // The native guest (Vivecraft) is VR by default since M2: kl_app.c's
-        // native_vr() reads the same knob with the same default, so the game's
-        // mode (vrEnabled, -Dklepton.vr.android) and this scene always agree.
-        klEnvOn("KL_IMMERSIVE", default: kl_app_target_is_steamlink() == 0)
+        // The native guest (Minecraft): the player's play-mode choice, committed
+        // by BootView.boot() before the first configure (MCPlayMode.swift).
+        // MCPlayMode.apply() also setenv()s KL_IMMERSIVE and writes it to
+        // klepton-env.txt, so kl_app.c's native_vr() reads the same answer at
+        // configure, argv, boot and re-run. Windowed unless chosen otherwise.
+        if kl_app_target_is_native() != 0, let mode = MCPlayMode.applied { return mode.immersive }
+        // Every other guest: VR by default except Steam Link, as before.
+        return klEnvOn("KL_IMMERSIVE", default: kl_app_target_is_steamlink() == 0)
     }
 
     // .mixed or .full, decided per target — and this is the setting the room
@@ -95,13 +99,37 @@ enum Immersive {
     ///
     /// `.hidden` for a target whose guest draws its own (`own_hands` in kl_app.c),
     /// `.automatic` otherwise — so Beat Saber's behaviour is unchanged by this
-    /// commit, and a BS player who wants it can flip it the same way. `KL_HANDS`
-    /// overrides in both directions: `KL_HANDS=1` puts the real limbs back
-    /// (useful for judging whether the guest's hands are tracking the same
-    /// pose), `KL_HANDS=0` takes them away.
-    static var upperLimbs: Visibility {
-        klEnvOn("KL_HANDS", default: kl_app_target_own_hands() == 0)
-            ? .automatic : .hidden
+    /// commit, and a BS player who wants it can flip it the same way.
+    ///
+    /// **One answer, applied once.** The scene used to carry two
+    /// `.upperLimbVisibility` modifiers — this target default and the Matting
+    /// panel's toggle — that disagreed for a target with `own_hands` and left
+    /// which of them won to SwiftUI. Now, in order:
+    ///
+    ///   1. `KL_HANDS`, when set, decides outright: `KL_HANDS=1` asks for the
+    ///      real limbs `.visible` (useful for judging whether the guest's hands
+    ///      track the same pose), `KL_HANDS=0` hides them.
+    ///   2. The Matting panel's hand-matting toggle, when OFF, hides them. It is
+    ///      a person's saved choice; it can take limbs away, never add them over
+    ///      a guest that draws its own.
+    ///   3. The native guest (Minecraft) asks for them `.visible`: the wearer
+    ///      wants their real arms, hands and held Sense controllers over the
+    ///      world, and `.automatic` leaves that to a system default that full
+    ///      immersion does not promise.
+    ///   4. `own_hands` hides them; anything else is `.automatic`.
+    ///
+    /// This is the system's passthrough of the real limbs only. The 6DoF hand
+    /// and Sense poses the guest draws with come from ARKit (KleptonCompositor
+    /// runARKit) and are independent of it in both directions. And `.visible`
+    /// is a request: the system may still not draw them while the space is not
+    /// on screen.
+    static func upperLimbs(handMatting: Bool) -> Visibility {
+        if ProcessInfo.processInfo.environment["KL_HANDS"] != nil {
+            return klEnvOn("KL_HANDS", default: true) ? .visible : .hidden
+        }
+        if !handMatting { return .hidden }
+        if kl_app_target_is_native() != 0 { return .visible }
+        return kl_app_target_own_hands() != 0 ? .hidden : .automatic
     }
 
     // How many times the CompositorLayer closure has been entered. SwiftUI may
@@ -146,32 +174,40 @@ enum Immersive {
 ///
 /// `KL_EXIT_ON_BACKGROUND=0` keeps the old behaviour, which is what a debugging
 /// session wants when the headset comes off with a capture still open.
+///
+/// **Except the native guest's world, while its layer is still ours.** Closing
+/// the Minecraft launcher window while the world plays takes the app's phase to
+/// `.background` with the space still presenting (on device), and
+/// exiting there killed a game the wearer was in. So for that guest the exit
+/// waits while the immersive layer is running or resumably paused, and is
+/// taken, on the original terms, the moment the layer ends or the game's run
+/// does. The decision is KleptonScenePolicy.lifetime; this enum only carries
+/// it out. Every other guest exits on `.background` exactly as before.
 enum Lifecycle {
     static func scenePhaseChanged(to phase: ScenePhase) {
         NSLog("[app] scene phase -> \(phase)")
-        // The crown press delivers .inactive at once but .background only when
-        // the system gets round to it (measured ~30 s). The music belongs to
-        // the immersive moment: go silent on the first, and still exit on the
-        // second. .active restores — the boot transition passes through a
-        // 2 s .inactive on the way in, which this round-trips harmlessly.
-        switch phase {
-        case .inactive: KleptonAudio.setSilenced(true)
-        case .active:   KleptonAudio.setSilenced(false)
-        default: break
-        }
-        // Coming back is the audio's cue, and it needs one: this OS silently
-        // stops calling CoreAudio's render callback across a scene transition —
-        // the boot window being closed while the immersive space runs is one,
-        // a Digital Crown press to passthrough is another — with no error and
-        // no interruption notification. See kl_audio_resume; the compositor
-        // hooks the immersive half of the same transition, and kl_audio's
-        // heartbeat catches whatever neither of them sees.
+        // The phase is one of the audio's two inputs, not its decision. This
+        // used to silence on every .inactive and only .active undid it — so
+        // closing the launcher window while the immersive space played muted
+        // the game for good: the phase left .active and, with no window left,
+        // never came back. While an immersive layer exists its state decides
+        // (a crown press or Home pauses/ends it and that silences); with none,
+        // the phase does, as before. See KleptonScenePolicy.
+        // The audio half also decides nothing about exiting — reconsider()
+        // below does, from the same two inputs.
         //
-        // Unconditional rather than "only if we were away". A rebuild of a
-        // healthy unit costs a few milliseconds of silence and cannot go wrong;
-        // the state that would let us skip it is precisely the state this
-        // platform lies about.
-        if phase == .active { kl_audio_resume() }
+        // .active is also the audio's cue to rebuild, and it needs one: this OS
+        // silently stops calling CoreAudio's render callback across a scene
+        // transition with no error and no interruption notification. See
+        // kl_audio_resume; the compositor hooks the immersive half of the same
+        // transition, and kl_audio's heartbeat catches whatever neither of them
+        // sees. Unconditional rather than "only if we were away" — a rebuild of
+        // a healthy unit costs a few milliseconds and cannot go wrong.
+        switch phase {
+        case .active:     KleptonAudio.scenePhaseChanged(to: .active)
+        case .background: KleptonAudio.scenePhaseChanged(to: .background)
+        default:          KleptonAudio.scenePhaseChanged(to: .inactive)
+        }
         // And the controllers need one for the same reason the audio does.
         // GameController stops forwarding events to an app that is not
         // frontmost, and a glanced-at visionOS notification takes the
@@ -179,15 +215,77 @@ enum Lifecycle {
         // only signal this process gets that input may need re-establishing.
         // See KleptonControllers.appBecameActive.
         if phase == .active { KleptonControllers.appBecameActive() }
-        guard phase == .background else { return }
-        // The pipeline cache save is throttled (kl_vulkan.c); write its tail
-        // now, while the process is certainly still alive to do it.
-        kl_vulkan_pipeline_cache_flush()
-        guard klEnvOn("KL_EXIT_ON_BACKGROUND", default: true) else {
-            NSLog("[app] backgrounded; KL_EXIT_ON_BACKGROUND=0, staying alive")
-            return
+        if phase == .background {
+            // The pipeline cache save is throttled (kl_vulkan.c); write its
+            // tail now, while the process is certainly still alive to do it.
+            kl_vulkan_pipeline_cache_flush()
+            if !exitOnBackground {
+                NSLog("[app] backgrounded; KL_EXIT_ON_BACKGROUND=0, staying alive")
+            }
         }
-        NSLog("[app] backgrounded — exiting (KL_EXIT_ON_BACKGROUND)")
+        reconsider("scene phase \(phase)", grace: false)
+    }
+
+    private static var exitOnBackground: Bool { klEnvOn("KL_EXIT_ON_BACKGROUND", default: true) }
+
+    // The native run count when the keep-alive began (nil = not keeping alive),
+    // the poll that watches for the game ending with no window left to see it,
+    // and a deferred exit already in flight. Main thread only.
+    nonisolated(unsafe) private static var keptAtRuns: Int32?
+    nonisolated(unsafe) private static var keepAlivePoll: Timer?
+    nonisolated(unsafe) private static var exitPending = false
+
+    /// Re-decide the process's lifetime. Called on every scene phase, on every
+    /// immersive layer change (KleptonAudio.layerChanged — the half that still
+    /// fires once the launcher window, and the phase handler under it, are
+    /// gone), and once a second while kept alive. Main thread.
+    ///
+    /// `grace` is for a layer that has just ended: its render thread is still
+    /// stopping ARKit and joining the guest (renderLoop's tail), so the exit
+    /// waits a bounded 2 s and is then re-decided rather than taken blind.
+    static func reconsider(_ why: String, grace: Bool) {
+        let native = kl_app_target_is_native() != 0
+        // The game's run has ended since we started keeping it alive: Quit Game
+        // with the launcher window closed. BootView's poll would normally answer
+        // that, and it went with the window. Its own Quitting… window is bounded
+        // in C (KL_MC_QUIT_GRACE_MS), so waiting for the count is bounded too.
+        let gameOver = native && keptAtRuns.map { kl_app_native_runs() > $0 } == true
+        let decision = KleptonScenePolicy.lifetime(
+            phase: KleptonAudio.phase, layer: KleptonAudio.layer, nativeGuest: native,
+            exitOnBackground: exitOnBackground, gameOver: gameOver)
+        switch decision {
+        case .carryOn:
+            if keptAtRuns != nil { NSLog("[app] keep-alive over (\(why)) — \(KleptonAudio.phase.rawValue)") }
+            keepAlivePoll?.invalidate(); keepAlivePoll = nil
+            keptAtRuns = nil
+        case .keepForImmersive:
+            guard keptAtRuns == nil else { return }
+            keptAtRuns = kl_app_native_runs()
+            NSLog("[app] backgrounded (\(why)) but the immersive layer is "
+                  + "\(KleptonAudio.layer.rawValue) — NOT exiting; the exit follows the layer or the game ending")
+            // With grace: whatever it finds (the game's run over, the layer
+            // ended) takes the same bounded 2 s as a layer end, and cannot cut
+            // short one already running.
+            keepAlivePoll = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                reconsider("keep-alive poll", grace: true)
+            }
+        case .exit:
+            if grace {
+                guard !exitPending else { return }
+                exitPending = true
+                NSLog("[app] backgrounded and \(why) — exiting in 2 s unless the space comes back")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    exitPending = false
+                    reconsider("\(why), after grace", grace: false)
+                }
+                return
+            }
+            exitNow(why)
+        }
+    }
+
+    private static func exitNow(_ why: String) {
+        NSLog("[app] backgrounded — exiting (KL_EXIT_ON_BACKGROUND; \(why))")
         // The last word on whether the run made a sound. This is the ONLY exit a
         // headset run ever takes — the report at the end of kl_app_lifecycle
         // belongs to the synthetic sweep and has never run on device — so if the
@@ -219,7 +317,10 @@ struct KleptonApp: App {
 
     var body: some Scene {
         WindowGroup { BootView() }
-            .defaultSize(width: 1280, height: 800)
+            // 960, not 800: with Immersive VR selected the Play panel carries the
+            // Play mode, Resolution and Turning rows, and at 800 they pushed the
+            // Play button out of the window.
+            .defaultSize(width: 1280, height: 960)
             // On the app's phase, not this window's: closing the boot window
             // while the immersive space is up is not backgrounding, and must
             // not be treated as it. The log line above every decision is what
@@ -242,22 +343,18 @@ struct KleptonApp: App {
         // Link keep .mixed. KL_FULL decides it outright either way.
         .immersionStyle(selection: .constant(Immersive.mixed ? .mixed : .full),
                         in: .mixed, .full)
-        // The wearer's real arms — see Immersive.upperLimbs. Hidden for a guest
-        // that draws its own hands, which is superhot and only superhot today.
-        // On the Scene, like persistentSystemOverlays below and for the same
-        // reason: a CompositorLayer has no view hierarchy to attach a View-level
-        // modifier to.
-        .upperLimbVisibility(Immersive.upperLimbs)
+        // The wearer's real arms — see Immersive.upperLimbs, which folds the
+        // target default, KL_HANDS and the Matting panel's toggle into ONE
+        // answer (two modifiers here used to disagree). On the Scene, like
+        // persistentSystemOverlays below and for the same reason: a
+        // CompositorLayer has no view hierarchy to attach a View-level modifier
+        // to. Read from the observed settings, so the toggle takes effect
+        // without a relaunch.
+        .upperLimbVisibility(Immersive.upperLimbs(handMatting: chroma.settings.handMatting))
         // See Immersive.systemOverlays. On the scene, not on a view inside it:
         // a CompositorLayer has no view hierarchy for the View-level modifier to
         // attach to, so the Scene-level one is the only one that applies here.
         .persistentSystemOverlays(Immersive.systemOverlays)
-        // Whether the system mattes the user's own hands and arms over the
-        // guest's picture. Read from the observed settings rather than from the
-        // environment directly, so the toggle in the Matting panel takes effect
-        // without a relaunch — which is the whole reason these live in a window
-        // that stays open beside the space.
-        .upperLimbVisibility(chroma.upperLimbVisibility)
     }
 }
 
@@ -275,35 +372,133 @@ enum Paths {
     }
 }
 
+/// The launcher's boot state, one per PROCESS rather than one per window.
+///
+/// BootView used to keep all of this in @State, which belongs to the window.
+/// The native guest's world now outlives a closed launcher (Lifecycle keeps
+/// the process for the immersive layer), so the window can be destroyed and
+/// recreated mid-game, and a fresh BootView read running=false,
+/// finished=false, openedSpace=false, gamesAnswered=0. Launch was enabled
+/// again (boot() would configure and kl_app_boot a second time and report
+/// "already run in this process" over a game being played); KL_AUTOBOOT=1
+/// re-prepared the launch arguments and booted on its own; Quit Game could
+/// not dismiss a space "this window" never opened; and a gamesAnswered of 0
+/// against a native_runs already past it would answer an OLD game's end by
+/// dismissing the CURRENT game's space.
+///
+/// Main actor, like MCLauncherModel and MSAAccounts beside it. Every write is
+/// BootView's, on the main thread — the boot thread's results arrive through
+/// DispatchQueue.main.async exactly as they did into @State.
+@MainActor
+final class BootSession: ObservableObject {
+    static let shared = BootSession()
+    /// Internal rather than private so a test can start from a fresh one.
+    init() {}
+
+    @Published var log = ""
+    @Published var status = "idle"
+    @Published var running = false
+    @Published var finished = false
+    @Published var succeeded = false
+
+    /// The immersive space this process asked for and has not given back.
+    private(set) var openedSpace = false
+    /// The 2D -> VR handoff, answered once.
+    private(set) var handedOff = false
+    /// How many of the native guest's returns have been answered
+    /// (kl_app_native_runs counts them in C).
+    private(set) var gamesAnswered: Int32 = 0
+    /// KL_AUTOBOOT is "boot this launch", once per process — not once per
+    /// window that happens to appear.
+    private(set) var autobootTaken = false
+
+    /// boot()'s own guard, asked BEFORE anything is prepared: no launch while
+    /// one is starting (`running`) or has happened and not ended (`finished`).
+    /// gameEnded() clears both, which is what lets a quit-to-launcher re-run
+    /// through; a failed boot leaves `finished`, which was already final.
+    var mayLaunch: Bool { !running && !finished }
+
+    func claimAutoboot() -> Bool {
+        guard !autobootTaken else { return false }
+        autobootTaken = true
+        return true
+    }
+
+    func claimHandoff() -> Bool {
+        guard !handedOff else { return false }
+        handedOff = true
+        return true
+    }
+
+    /// Claim the space before asking for it, so two paths (or two windows)
+    /// cannot both open it.
+    func claimSpace() -> Bool {
+        guard !openedSpace else { return false }
+        openedSpace = true
+        return true
+    }
+
+    /// What openImmersiveSpace answered. Anything but `.opened` leaves no space
+    /// to dismiss, so the claim is released — once, no retry here; the next
+    /// Launch or re-run may claim again. An `.opened` that lands after the
+    /// claim was already given back (Quit Game raced the open) is not re-taken.
+    func spaceOpened(_ opened: Bool) {
+        if !opened { openedSpace = false }
+    }
+
+    /// Give the space back; true if there was one to dismiss.
+    func releaseSpace() -> Bool {
+        guard openedSpace else { return false }
+        openedSpace = false
+        return true
+    }
+
+    /// True once per finished native run. Taken before the await that
+    /// answers it, so a second window's poll cannot answer the same end.
+    func claimGameEnd(runs: Int32) -> Bool {
+        guard runs > gamesAnswered else { return false }
+        gamesAnswered = runs
+        return true
+    }
+}
+
 struct BootView: View {
-    @State private var log = ""
-    @State private var status = "idle"
-    @State private var running = false
-    @State private var finished = false
-    @State private var succeeded = false
-    @State private var openedSpace = false
+    // Process state lives in BootSession (see there); these forward to it so
+    // every read and write below — and the launcher's arguments in `body` —
+    // keeps its name and its shape.
+    @ObservedObject private var session = BootSession.shared
+    private var log: String {
+        get { session.log } nonmutating set { session.log = newValue } }
+    private var status: String {
+        get { session.status } nonmutating set { session.status = newValue } }
+    private var running: Bool {
+        get { session.running } nonmutating set { session.running = newValue } }
+    private var finished: Bool {
+        get { session.finished } nonmutating set { session.finished = newValue } }
+    private var succeeded: Bool {
+        get { session.succeeded } nonmutating set { session.succeeded = newValue } }
     // The flat guest's picture, and the handoff that ends it. Polled rather
     // than pushed: both are C state written by a guest thread, and a callback
     // out of one into SwiftUI would be a main-actor hop from a thread that is
     // mid-frame. A timer at 5 Hz costs nothing and cannot deadlock.
+    // showShell stays per window: it is re-derived from C on every poll.
     @State private var showShell = false
-    @State private var handedOff = false
     // The Minecraft row's themed launcher (KleptonMCLauncher.swift) stands in
     // front of the report; "Details" flips to the report and back.
     @ObservedObject private var launcher = MCLauncherModel.shared
     @ObservedObject private var accounts = MSAAccounts.shared
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
-    // Quit to the launcher (native guest): how many of the guest's returns this
-    // window has already answered (kl_app_native_runs counts them in C).
-    @State private var gamesAnswered: Int32 = 0
 
     var body: some View {
         Group {
             if showShell { ShellWindow() }
-            else if MCLauncher.enabled, !launcher.details {
+            // Minecraft always opens its product launcher. Technical reports
+            // remain in diagnostics exports and the other runtime targets.
+            else if MSAAccounts.isMinecraft || (MCLauncher.enabled && !launcher.details) {
                 MCLauncherView(running: running, finished: finished, succeeded: succeeded, status: status,
-                               onLaunch: { launch() }, onDetails: { launcher.details = true })
+                               onLaunch: { launch() },
+                               onDetails: { NSLog("[launcher] diagnostics are available as an export") })
             } else { bootReport }
         }
         .task { await watchPresentation() }
@@ -315,9 +510,14 @@ struct BootView: View {
     /// this anyway, which is what KL_AUTOBOOT was for. `KL_AUTOBOOT=0`
     /// restores the button-only shape for hand-driven debugging, where the
     /// point is to attach or start a capture before the guest runs.
-    /// The Minecraft launcher is the exception: it IS the product's front
-    /// door, so it waits for Launch unless KL_AUTOBOOT=1 is set explicitly
-    /// (run.sh sets it), and then boots with the dev run's own KL_MC_ARGS.
+    ///
+    /// **The Minecraft row never autoboots.** Its play mode is a
+    /// choice the player makes with the labelled Play action, every session;
+    /// a remembered Immersive VR choice must not start a game on its own, and
+    /// neither KL_AUTOBOOT=1 nor KL_LAUNCHER=0 may answer for the player. A
+    /// deliberate scripted test still exists: KL_LAUNCHER_SCRIPT's explicit
+    /// `mode=…;launch` steps go through the same Play action. Every other
+    /// guest keeps its autoboot exactly as before.
     private func autobootIfAsked() async {
         // The gate reads the store, so the list (and deviceUnlocked) has to be
         // loaded before either the button or an autoboot decides. KL_MSA=0
@@ -325,18 +525,14 @@ struct BootView: View {
         if MSAAccounts.isMinecraft || MSAAccounts.wanted {
             await MSAAccounts.shared.reload()
         }
-        if MCLauncher.enabled {
-            guard MCLauncher.autoboot else { return }
-            guard OwnershipGate.allowsLaunch() else {
-                OwnershipGate.recordRefusal()
-                return
+        if MSAAccounts.isMinecraft {
+            if klEnvOn("KL_AUTOBOOT", default: false) || MCLauncher.autoboot {
+                NSLog("[launcher] KL_AUTOBOOT is ignored for Minecraft: the game starts only from the Play action")
             }
-            if MSAAccounts.wanted, !(await MSAAccounts.shared.countdownThenBoot()) { return }
-            MCLauncherModel.shared.prepareForLaunch(applyPlay: false)
-            boot()
             return
         }
         guard klEnvOn("KL_AUTOBOOT", default: true) else { return }
+        guard autobootMayProceed() else { return }
         guard OwnershipGate.allowsLaunch() else {
             OwnershipGate.recordRefusal()
             return
@@ -344,18 +540,44 @@ struct BootView: View {
         // A few seconds to pick another account (KL_MSA_CHOOSER_SECONDS);
         // touching the panel holds the boot for the Boot button.
         if MSAAccounts.wanted, !(await MSAAccounts.shared.countdownThenBoot()) { return }
-        if MSAAccounts.isMinecraft { MCProfiles.prepareForLaunch() }
+        guard launchMayProceed("autoboot") else { return }
         boot()
+    }
+
+    private func autobootMayProceed() -> Bool {
+        guard session.claimAutoboot() else {
+            NSLog("[launcher] autoboot already taken in this process — not again for a reopened window")
+            return false
+        }
+        return launchMayProceed("autoboot")
+    }
+
+    /// The idempotence guard, and it sits BEFORE prepareForLaunch and the
+    /// profile seeding because those are the mutations (launch arguments,
+    /// game dir, env) that must not be redone under a game that is running.
+    /// boot()'s own guard is too late for them. Ahead of the ownership gate,
+    /// too, so an ignored press records no refusal.
+    private func launchMayProceed(_ who: String) -> Bool {
+        guard session.mayLaunch else {
+            NSLog("[launcher] \(who) ignored — a game is already launching or running in this process "
+                  + "(running=\(running) finished=\(finished))")
+            return false
+        }
+        return true
     }
 
     /// A person pressed Launch/Boot: the launcher's choices first.
     private func launch() {
+        guard launchMayProceed("Launch") else { return }
         guard OwnershipGate.allowsLaunch() else {
             OwnershipGate.recordRefusal()
             return
         }
         if MCLauncher.enabled { MCLauncherModel.shared.prepareForLaunch(applyPlay: true) }
-        else if MSAAccounts.isMinecraft { MCProfiles.prepareForLaunch() }   // KL_LAUNCHER=0: same game dirs
+        else if MSAAccounts.isMinecraft {                                     // KL_LAUNCHER=0: same game dirs,
+            MCProfiles.prepareForLaunch()                                     // same play-mode rule
+            MCPlayMode.apply(MCLauncherModel.shared.playMode)
+        }
         boot()
     }
 
@@ -369,20 +591,28 @@ struct BootView: View {
     private func watchPresentation() async {
         while !Task.isCancelled {
             let mono = kl_present_mode_now() == KL_PRESENT_MONO
-            if mono != showShell { showShell = mono }
+            // The native guest's flat picture (windowed play mode) is
+            // shown only while ITS run is on: from Launch until the game returns,
+            // and not while it is closing (Quitting… belongs to the launcher).
+            // kl_present is not read back for whether the mode resets after
+            // glfwTerminate, so this window must not depend on that; a reopened
+            // window mid-game shows the game, after the game it shows the
+            // launcher. Every other guest keeps the plain rule.
+            let native = kl_app_target_is_native() != 0
+            let shell = mono && (!native || (session.running && !launcher.quitting))
+            if shell != showShell { showShell = shell }
 
-            if kl_app_vrlink_pending() != 0, !handedOff {
-                handedOff = true
+            if kl_app_vrlink_pending() != 0, session.claimHandoff() {
                 NSLog("[app] 2D -> VR handoff: \(String(cString: kl_app_vrlink_sargs()))")
                 // Unconditionally, not behind Immersive.wanted: that default
                 // says what a LAUNCH should open, and this is a run that has
                 // just been handed the one thing the VR half cannot start
-                // without. openedSpace is shared with boot() so the two paths
-                // cannot both open it.
-                if !openedSpace {
-                    openedSpace = true
+                // without. The space claim is shared with boot() so the two
+                // paths cannot both open it.
+                if session.claimSpace() {
                     let r = await openImmersiveSpace(id: Immersive.id)
                     NSLog("[cp] openImmersiveSpace (after handoff) -> \(r)")
+                    session.spaceOpened(Self.opened(r))
                 }
             }
             // The game closed its window (Quit Game -> glfwTerminate): its picture
@@ -393,17 +623,22 @@ struct BootView: View {
                 launcher.quitting = true
                 NSLog("[launcher] the game closed its window — dismissing the space, waiting for the run to end")
                 fputs("[launcher] the game closed its window — dismissing the space\n", stderr)
-                if openedSpace {
+                if session.releaseSpace() {
                     await dismissImmersiveSpace()
-                    openedSpace = false
                 }
             }
-            if kl_app_target_is_native() != 0, kl_app_native_runs() > gamesAnswered {
-                gamesAnswered = kl_app_native_runs()
+            if kl_app_target_is_native() != 0, session.claimGameEnd(runs: kl_app_native_runs()) {
                 await gameEnded()
             }
             try? await Task.sleep(for: .milliseconds(200))
         }
+    }
+
+    /// Whether openImmersiveSpace actually gave us the space. `.userCancelled`,
+    /// `.error` and anything a later SDK adds all mean there is none to hold.
+    private static func opened(_ r: OpenImmersiveSpaceAction.Result) -> Bool {
+        if case .opened = r { return true }
+        return false
     }
 
     /// The native guest (Minecraft) returned from its main: Quit Game. Before
@@ -418,9 +653,8 @@ struct BootView: View {
     private func gameEnded() async {
         let rc = kl_app_native_rc()
         let rerun = kl_app_native_rerun_ok() != 0
-        if openedSpace {
+        if session.releaseSpace() {
             await dismissImmersiveSpace()
-            openedSpace = false
         }
         if !rerun {
             NSLog("[launcher] game ended (rc=\(rc)) — no re-run in this process; exiting so the next launch starts at the launcher")
@@ -438,18 +672,45 @@ struct BootView: View {
         launcher.gameEnded()
     }
 
+    /// What the report's heading calls this app.
+    ///
+    /// The Minecraft row ships under its own name: Klepton is the visionOS /
+    /// OpenXR / native host the precompiled game runs on, not the product, so
+    /// the heading is the bundle's CFBundleDisplayName ("Vivecraft")
+    /// — or "Minecraft" if the Info.plist has none — and the host is credited
+    /// on the "Runtime: Klepton" line beside it rather than hidden. Every
+    /// other target IS the Klepton app and keeps the Klepton heading.
+    /// Display only: nothing here is read by boot, the gate or the launcher.
+    private var reportTitle: String {
+        guard MSAAccounts.isMinecraft else { return "Klepton" }
+        let name = (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? "Minecraft" : name
+    }
+
     private var bootReport: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 if MCLauncher.enabled {
                     Button("Launcher", systemImage: "chevron.backward") { launcher.details = false }
                 }
-                Text("Klepton").font(.largeTitle.bold())
+                Text(reportTitle).font(.largeTitle.bold())
                 // The guest, by name. Two apps are built from this tree and they
                 // look identical from the front; a boot log that does not say
                 // which one produced it is a log that can be read as the other's.
                 Text(String(cString: kl_app_target_name()))
                     .foregroundStyle(.secondary)
+                // The host, by name, where the heading no longer says it (see
+                // reportTitle): the upstream runtime stays credited in Details.
+                if MSAAccounts.isMinecraft {
+                    Text("Runtime: Klepton")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                // Build identity: the report is what shows during the
+                // boot (Details, KL_LAUNCHER=0, autoboot), so the build is named
+                // here too. Display only (KleptonMCLauncher.swift, MCBuildFooter).
+                MCBuildFooter(id: "report", light: false)
                 Spacer()
                 if finished {
                     Label(succeeded ? "initJni completed" : status,
@@ -487,7 +748,7 @@ struct BootView: View {
                 AccountsPanel(locked: running || finished)
             }
             if OwnershipGate.enforced && accounts.gateReady && !accounts.deviceUnlocked {
-                Text(OwnershipGate.sentence)
+                Text(OwnershipGate.lockedSentence(for: accounts.accounts))
                     .font(.body)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -528,6 +789,11 @@ struct BootView: View {
             rerun()
             return
         }
+        // The play mode this process will run: the launcher's
+        // choice, exported to KL_IMMERSIVE before configure reads it and fixed
+        // from here on. Windowed unless the player chose Immersive VR.
+        if kl_app_target_is_native() != 0 { MCPlayMode.commit(MCLauncherModel.shared.playMode) }
+        let windowedNative = kl_app_target_is_native() != 0 && !Immersive.wanted
         running = true; log = ""
 
         // Off the main thread: the guest blocks — Unity's Baselib waits on
@@ -620,10 +886,17 @@ struct BootView: View {
             // means nothing to a guest that owns its frame loop), and its report
             // is written at the END of the pump, so stopping at the chain would
             // mean the default launch loads the guest and then does nothing.
+            //
+            // The native guest in WINDOWED play mode is the one more
+            // case: kl_app_lifecycle is its whole run (kl_app.c: native_run on
+            // this thread, blocking until Quit Game), its picture arrives through
+            // kl_mono into ShellWindow, and there is no immersive space. It is
+            // taken explicitly rather than through owns_frame_loop/KL_FRAMES, so
+            // the windowed game runs whatever the driver table says.
             let env = ProcessInfo.processInfo.environment
             let ownsLoop = kl_app_target_owns_frame_loop() != 0
             if result == 0, !Immersive.wanted,
-               ownsLoop || env["KL_FRAMES"] != nil {
+               windowedNative || ownsLoop || env["KL_FRAMES"] != nil {
                 result = kl_app_lifecycle(UInt32(env["KL_FRAMES"] ?? "") ?? 1)
             }
             poll.invalidate()
@@ -631,6 +904,15 @@ struct BootView: View {
             let text = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
             DispatchQueue.main.async {
                 log = text
+                if windowedNative, result == 0 {
+                    // The windowed game has ENDED (native_run returned): idle, not
+                    // Playing. gameEnded() answers the run too (claimGameEnd), in
+                    // either order; both leave the launcher idle with the same
+                    // words, so a late arrival cannot re-lock it.
+                    status = "game ended (rc=\(kl_app_native_rc()))"
+                    running = false; finished = false; succeeded = false
+                    return
+                }
                 status = String(cString: kl_app_status())
                 succeeded = (result == 0)
                 running = false; finished = true
@@ -640,16 +922,17 @@ struct BootView: View {
                 // that kl_app_boot creates. Opening it in parallel with boot
                 // would be a race whose losing side reports "kl_app_boot must
                 // run first" and reads like a missing binding.
-                if result == 0, Immersive.wanted, !openedSpace {
-                    openedSpace = true
+                if result == 0, Immersive.wanted, session.claimSpace() {
                     // The result is logged rather than discarded: `.error` and
                     // `.userCancelled` both leave the app alive with no
                     // compositor, which is indistinguishable in the log from a
                     // compositor that came up and died — and those want
-                    // completely different next moves.
-                    Task {
+                    // completely different next moves. Either one also gives
+                    // the claim back, so a closed space is never held as open.
+                    Task { @MainActor in
                         let r = await openImmersiveSpace(id: Immersive.id)
                         NSLog("[cp] openImmersiveSpace -> \(r)")
+                        session.spaceOpened(Self.opened(r))
                     }
                 }
             }
@@ -658,6 +941,11 @@ struct BootView: View {
 
     private func rerun() {
         running = true
+        // The process's committed mode (MCPlayMode.applied) — a re-run cannot
+        // change it: KLGLFW_VR and the mono capture were fixed by the first
+        // configure/boot (kl_app.c). prepareForLaunch re-exported the same
+        // value, so kl_app_native_rerun's env refresh and vrEnabled edit agree.
+        let windowedNative = kl_app_target_is_native() != 0 && !Immersive.wanted
         Thread.detachNewThread {
             // Off the main thread: it reads files and asks for the MSA session
             // (a network round trip in kl_msa_session).
@@ -672,14 +960,34 @@ struct BootView: View {
                     running = false; finished = false; succeeded = false
                     return
                 }
-                running = false; finished = true; succeeded = true
                 // The render loop's end silenced the session; this run needs it.
-                KleptonAudio.setSilenced(false)
-                if Immersive.wanted, !openedSpace {
-                    openedSpace = true
-                    Task {
+                KleptonAudio.rearm()
+                if windowedNative {
+                    // Windowed re-run: no space to open; the game runs
+                    // again on a thread of its own, exactly as the first run did
+                    // on the boot thread (kl_app_lifecycle -> native_run has no
+                    // once-guard for the native guest). `running` stays true until
+                    // it returns; the window shows the picture meanwhile.
+                    Thread.detachNewThread {
+                        let r = kl_app_lifecycle(1)
+                        DispatchQueue.main.async {
+                            if r == 0 {
+                                status = "game ended (rc=\(kl_app_native_rc()))"
+                                running = false; finished = false; succeeded = false
+                            } else {
+                                status = String(cString: kl_app_status())
+                                running = false; finished = true; succeeded = false
+                            }
+                        }
+                    }
+                    return
+                }
+                running = false; finished = true; succeeded = true
+                if Immersive.wanted, session.claimSpace() {
+                    Task { @MainActor in
                         let r = await openImmersiveSpace(id: Immersive.id)
                         NSLog("[cp] openImmersiveSpace (re-run) -> \(r)")
+                        session.spaceOpened(Self.opened(r))
                     }
                 }
             }

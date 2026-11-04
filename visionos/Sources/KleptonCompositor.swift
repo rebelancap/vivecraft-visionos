@@ -327,6 +327,9 @@ final class KleptonCompositor {
     private let handTracking = HandTrackingProvider()
     private let controllers = KleptonControllers()
     private var arRunning = false
+    // Whether the hand provider is in the running set — false when the wearer
+    // refused hand tracking, which must leave the head and Sense untouched.
+    private var handsRunning = false
 
     // How much work reprojection is doing, sampled for the log.
     private var reprojectFrames = 0
@@ -568,37 +571,66 @@ final class KleptonCompositor {
             // kl_openxr guess from the pose we last published.
             Self.headAtTracker = worldTracking
             kl_ovrp_set_head_at(Self.headAt)
-            var providers: [any DataProvider] = [worldTracking]
-            if HandTrackingProvider.isSupported { providers.append(handTracking) }
             let accessories = await controllers.makeAccessoryProvider()
-            if let accessories { providers.append(accessories) }
-            // **ASK, rather than let run() ask for us.** A correct
-            // `NSAccessoryTrackingUsageDescription` only makes the *prompt*
-            // legal — something still has to raise it, and `run()` throwing
-            // `dataProviderNotAuthorized` a millisecond after the provider was
-            // built is what a `notDetermined` nobody requested looks like:
-            // indistinguishable in the log from a consent the user denied.
+            // **ASK, rather than let run() ask for us** — for every provider
+            // that needs consent, hands included. A correct usage description
+            // only makes the *prompt* legal — something still has to raise it,
+            // and `run()` throwing `dataProviderNotAuthorized` a millisecond
+            // after the provider was built is what a `notDetermined` nobody
+            // requested looks like: indistinguishable in the log from a consent
+            // the user denied. Hands used to be left to run(); a run whose hand
+            // consent was never asked for got no skeleton at all.
             //
             // Consent is per **bundle id**, so another Klepton port having been
-            // granted accessory tracking says nothing about this one.
+            // granted accessory or hand tracking says nothing about this one.
             //
             // Both statuses are logged — before and after — so a run names
             // which of the three it is: `notDetermined -> allowed` is this call
             // doing its job, `denied` in either column is a Settings toggle
-            // only Austin can move, and `allowed -> allowed` followed by a
+            // only the wearer can move, and `allowed -> allowed` followed by a
             // throw means the refusal is about the provider (an empty
             // accessory list) and not about consent.
+            let handsWanted = HandTrackingProvider.isSupported
+            var want: [ARKitSession.AuthorizationType] = []
+            if handsWanted { want += HandTrackingProvider.requiredAuthorizations }
             if accessories != nil, #available(visionOS 26.0, *) {
-                let want = AccessoryTrackingProvider.requiredAuthorizations
+                want += AccessoryTrackingProvider.requiredAuthorizations
+            }
+            var granted: [ARKitSession.AuthorizationType: ARKitSession.AuthorizationStatus] = [:]
+            if !want.isEmpty {
                 let before = await arSession.queryAuthorization(for: want)
-                let after = await arSession.requestAuthorization(for: want)
-                NSLog("[cp] accessory authorization \(want): \(before) -> \(after)")
+                granted = await arSession.requestAuthorization(for: want)
+                NSLog("[cp] ARKit authorization \(want): \(before) -> \(granted)")
+            }
+            func allowed(_ needs: [ARKitSession.AuthorizationType]) -> Bool {
+                needs.allSatisfy { granted[$0] == .allowed }
+            }
+
+            // **Each provider on its own consent.** run() refuses the whole set
+            // if any one member is unauthorised, so a denied hand prompt used to
+            // take world tracking down with it — the head fell back to the
+            // synthetic standing pose for the sake of a fallback input. The
+            // head never needs consent; hands and controllers join only when
+            // theirs is granted, and a refused one is named rather than fatal.
+            var providers: [any DataProvider] = [worldTracking]
+            let handsOn = handsWanted && allowed(HandTrackingProvider.requiredAuthorizations)
+            if handsOn { providers.append(handTracking) }
+            else if handsWanted { NSLog("[cp] hand tracking NOT authorized — head and controllers only") }
+            var senseOn = false
+            if let accessories, #available(visionOS 26.0, *) {
+                if allowed(AccessoryTrackingProvider.requiredAuthorizations) {
+                    providers.append(accessories)
+                    senseOn = true
+                } else {
+                    NSLog("[cp] accessory tracking NOT authorized — Sense poses unavailable")
+                }
             }
             try await arSession.run(providers)
             arRunning = true
-            NSLog("[cp] ARKit running (hands: \(HandTrackingProvider.isSupported), "
-                  + "sense: \(controllers.senseConnected))")
-            if let accessories {
+            handsRunning = handsOn
+            NSLog("[cp] ARKit running (hands: \(handsOn), "
+                  + "sense: \(controllers.senseConnected), accessory provider: \(senseOn))")
+            if let accessories, senseOn {
                 // A fresh anchor stream per provider. The previous one ends
                 // when its provider is replaced, so these do not accumulate.
                 Task { await controllers.consumeAccessoryAnchors(accessories) }
@@ -775,7 +807,7 @@ final class KleptonCompositor {
         // reads as the hands running at a third of the frame rate, which is
         // exactly what it is.
         var left: HandAnchor?, right: HandAnchor?
-        if HandTrackingProvider.isSupported {
+        if handsRunning {
             let hands = handTracking.handAnchors(at: presentationTime)
             if let a = hands.leftHand,  a.isTracked { left  = a }
             if let a = hands.rightHand, a.isTracked { right = a }
@@ -1679,12 +1711,20 @@ final class KleptonCompositor {
         var presented = 0
         var iterations = 0
         var nextReport = Date()
+        // From here until the loop ends, this layer — not the app's scene
+        // phase — says whether the game is audible and, for the native guest,
+        // whether a backgrounded app may exit (KleptonScenePolicy). A closed
+        // launcher window moves the phase; it does not stop this loop.
+        let audioOwner = ObjectIdentifier(self)
+        KleptonAudio.layerChanged(audioOwner, .running)
         loop: while true {
             switch layerRenderer.state {
             case .invalidated:
                 break loop
             case .paused:
                 NSLog("[cp] layer paused at iteration \(iterations) — waiting")
+                // Off screen (crown press, Home): silent until it runs again.
+                KleptonAudio.layerChanged(audioOwner, .paused)
                 // The one flush point a closed window is guaranteed to deliver.
                 // On device the exit report never runs — KL_EXIT_ON_BACKGROUND=0
                 // is baked for these targets (the app must not exit when its
@@ -1707,7 +1747,17 @@ final class KleptonCompositor {
                 // restart). kl_audio's own heartbeat finds it too, about a
                 // second later; this is the half that knows the exact moment,
                 // and a second of dropped music is the difference.
-                kl_audio_resume()
+                //
+                // Through the policy rather than kl_audio_resume() directly:
+                // the pause above silenced deliberately, and resume() alone
+                // would bounce off that latch. The policy lifts it and
+                // rebuilds, on the main thread (setActive is an XPC round trip
+                // and this thread has a 2 s no-frames kill). Only if the layer
+                // really is running — waitUntilRunning also returns on
+                // invalidation, and a blip of sound before the end is wrong.
+                if layerRenderer.state == .running {
+                    KleptonAudio.layerChanged(audioOwner, .running)
+                }
                 continue loop
             default:
                 // How long ONE slot took, wall clock, outside in. This is the
@@ -1753,7 +1803,7 @@ final class KleptonCompositor {
         // ~30-60 s to background the process — which is when Lifecycle exits.
         // Go silent the moment the picture is gone, not when the OS gets to
         // it; the guest may keep rendering until the join below.
-        KleptonAudio.setSilenced(true)
+        KleptonAudio.layerChanged(audioOwner, .ended)
         // This layer's ARKit session ends with it. Once per process this never
         // mattered (the process ended with the layer); with quit-to-launcher a
         // later Launch opens a NEW layer and a new compositor, and the old

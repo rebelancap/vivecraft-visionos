@@ -42,6 +42,14 @@ import Foundation
 // Removing an account keeps its profile dir. KL_MC_PROFILES=0 (env file) or
 // KL_MSA=0 = the old single shared fgamedir.
 //
+// HUD comfort (MCUIComfort.swift): right after the profile is prepared,
+// and only once per profile, the three Vivecraft HUD placement keys
+// (vrHudLockMode, hudDistance, headHudScale) are moved from stock to a
+// forward head lock at 2 m, slightly smaller, IF they are all still stock.
+// Inventory / in-world menu keys and everything else are preserved exactly; a
+// customized HUD is never touched. The outcome is one log line and never
+// stops the launch.
+//
 // A fresh IPA (KleptonPayload marker "bundle") ships no world. If a world is
 // in that game dir anyway, the first profile inherits it, Offline included,
 // because there is no owning account yet. A devicectl-staged container
@@ -198,9 +206,31 @@ enum MCProfiles {
         let inherit = owns || KleptonPayload.sharesSeedWorld
         do {
             let r = try MCProfileFS.prepare(instance: inst, seedDir: gd, key: key, displayName: name, mayInherit: inherit)
+            // One-time UI comfort defaults for THIS profile, before the game
+            // reads its config (kl_app.c's vrEnabled edit comes later and is
+            // line-wise too). Never throws; a failure is logged and the launch
+            // goes on with the config as it is.
+            let comfort = MCUIComfort.apply(profileDir: r.path)
+            NSLog("[comfort] %@: %@", name, comfort.summary)
+            // One-time HUD pitch move (MCHUDPitch.swift, its own marker): after
+            // comfort, which edits the same file, and before the game reads it.
+            // Never throws either.
+            let pitch = MCHUDPitch.apply(profileDir: r.path)
+            NSLog("[hud-pitch] %@: %@", name, pitch.summary)
+            var note = r.note
+            if case .applied = comfort { note += "; hud comfort defaults applied" }
+            if case .applied = pitch { note += "; hud pitch moved" }
+            // Turning (MCTurningPreferences.swift): the launcher's
+            // Smooth / 45° Snap choice -> this profile's vrWorldRotationIncrement,
+            // re-applied every launch. After comfort so a brand-new profile's
+            // missing config is reported once, not seeded. Never throws.
+            let turning = MCTurning.stored
+            let turned = MCTurning.apply(turning, profileDir: r.path)
+            NSLog("[turning] %@: %@ -> %@", name, turning.rawValue, turned.summary)
+            if case .applied = turned { note += "; turning \(turning.rawValue)" }
             setenv("KL_MC_GAMEDIR", r.path, 1)
-            setenv("KL_MC_PROFILE_NOTE", "\(name): \(r.note)", 1)
-            NSLog("[profiles] %@ -> %@ (%@)", name, r.path, r.note)
+            setenv("KL_MC_PROFILE_NOTE", "\(name): \(note)", 1)
+            NSLog("[profiles] %@ -> %@ (%@)", name, r.path, note)
         } catch {
             setenv("KL_MC_PROFILE_NOTE", "profile \(key) FAILED (\(error.localizedDescription)) — shared dir", 1)
             NSLog("[profiles] %@: preparing %@ failed: %@ — the shared game dir", name, key, error.localizedDescription)

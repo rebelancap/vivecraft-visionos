@@ -101,10 +101,11 @@ final class KleptonChroma: ObservableObject {
         settings = s          // didSet publishes it to the shader and re-saves
     }
 
-    /// What the App reads to decide whether the system draws the user's hands
-    /// over the guest. Published, so toggling it re-evaluates the scene rather
-    /// than waiting for a relaunch.
-    var upperLimbVisibility: Visibility { settings.handMatting ? .automatic : .hidden }
+    // `settings.handMatting` is what the App reads to decide whether the system
+    // draws the user's hands over the guest — through Immersive.upperLimbs,
+    // which is the one place it meets the target default and KL_HANDS.
+    // Published, so toggling it re-evaluates the scene rather than waiting for
+    // a relaunch.
 
     private func publish() {
         var rgb = [settings.color.x, settings.color.y, settings.color.z]

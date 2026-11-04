@@ -8,9 +8,20 @@ import UIKit
 
 // The Minecraft launcher window (the vivecraft row only): pick an account,
 // pick what to play, pick a resolution, answer the microphone prompt, Launch.
-// It replaces BootView's generic report for this row; the report is one tap
-// away behind "Details", and KL_LAUNCHER=0 (launch env or klepton-env.txt)
-// brings the plain window back.
+// It replaces BootView's generic report for this row. Nothing in this window
+// navigates to that report: About has credits and an export of the
+// diagnostics files; a failed launch shows a plain sentence, a short code and
+// the same export. `onDetails` stays in the signature for BootView and the
+// script's `details` step only; BootView is being changed to show this window
+// for the Minecraft row regardless of KL_LAUNCHER or `details`.
+//
+// Product copy only: nothing on the normal path names a KL_* knob, the
+// env file, the boot, an APK or JNI. Failures are never hidden: the actual
+// status is written verbatim to a private launch report in Documents
+// (MCFailureReport), which Export shares together with the runtime log; on
+// screen it is a short code the player can quote. The loading state is a
+// compact progress strip whose stage text comes from the milestones kl_app.c
+// itself prints into the boot log (MCLaunchProgress).
 //
 // Nothing Mojang ships is bundled. The look — panorama, logo, stone buttons,
 // the pixel font, the Steve head — is read at RUNTIME from the install the
@@ -32,9 +43,18 @@ import UIKit
 //                over the row); Sharp removes the line so the row's 4864 applies.
 //                Every other line of that file is kept as it was.
 //
-// Autoboot: the launcher waits for Launch unless KL_AUTOBOOT=1 is set
-// explicitly (run.sh does), and an autoboot keeps the play target the dev run
-// gave in KL_MC_ARGS (it never applies the remembered one).
+// Autoboot: NONE for this row. The game starts only from the
+// labelled Play action; KL_AUTOBOOT is ignored for Minecraft in
+// BootView.autobootIfAsked. A deliberate scripted test uses KL_LAUNCHER_SCRIPT's
+// explicit `mode=…;launch`, which takes the same Play path.
+//
+// Play mode (MCPlayMode.swift): Windowed or Immersive VR, chosen in
+// the Play panel BEFORE the labelled Play action, windowed by default. The last
+// choice is remembered as a PRESELECTION only — the panel says "default" or
+// "remembered" — and the player presses "Play in VR" each session. The choice
+// is exported as KL_IMMERSIVE (environment + klepton-env.txt) at Launch, so no
+// path enters the space without it. Fixed for the process once a game has
+// booted; the panel says so.
 
 // --- env: the launch environment and Documents/klepton-env.txt ------------------
 
@@ -190,6 +210,9 @@ struct MCInstance {
     var assetsDir: String?
     var assetIndex: String?
     var gameJar: String?
+    /// launch.txt's `--version` (the Minecraft version the boot runs), for the
+    /// build-identity footer only. nil when launch.txt is absent or has none.
+    var version: String?
 
     static func read(tree: String = "vivecraft") -> MCInstance {
         let base = Paths.container + "/" + tree
@@ -204,6 +227,7 @@ struct MCInstance {
             case "--gameDir": i.gameDir = expand(l)
             case "--assetsDir": i.assetsDir = expand(l)
             case "--assetIndex": i.assetIndex = l
+            case "--version": i.version = l
             default: break
             }
             if l.hasPrefix("-Dfabric.gameJarPath=") { i.gameJar = expand(String(l.dropFirst(21))) }
@@ -381,6 +405,10 @@ final class MCTheme: ObservableObject {
     @Published var dirt: UIImage?
     @Published var steve: UIImage?
     @Published var font: MCFont?
+    /// The staged instance's Minecraft version (launch.txt --version), read with
+    /// the theme so the build-identity footer can say "Minecraft 26.2" once it is
+    /// known. nil until the theme has loaded, or when launch.txt has no version.
+    @Published var instanceVersion: String?
     private var loaded = false
     private var textCache: [String: UIImage] = [:]
 
@@ -393,6 +421,7 @@ final class MCTheme: ObservableObject {
             panorama = r.pano; logo = r.logo; edition = r.edition
             button = r.btn; buttonHi = r.btnHi; buttonOff = r.btnOff
             dirt = r.dirt; steve = r.steve; font = r.font
+            instanceVersion = r.version
             NSLog("[launcher] theme: panorama %d/4, logo %@, buttons %@, font %@, steve %@ (%.2f s)",
                   r.pano.count, r.logo != nil ? "yes" : "no", r.btn != nil ? "yes" : "no",
                   r.font != nil ? "yes" : "no", r.steve != nil ? "yes" : "no", Date().timeIntervalSince(t0))
@@ -403,11 +432,13 @@ final class MCTheme: ObservableObject {
         var pano: [UIImage] = []
         var logo, edition, btn, btnHi, btnOff, dirt, steve: UIImage?
         var font: MCFont?
+        var version: String?
     }
 
     nonisolated private static func read() -> Loaded {
         var r = Loaded()
         let inst = MCInstance.read()
+        r.version = inst.version
         func png(_ d: Data?) -> UIImage? { d.flatMap { UIImage(data: $0) } }
         // Panorama: the asset index (hash per version) -> objects/<h2>/<hash>.
         if let ad = inst.assetsDir, let idx = inst.assetIndex,
@@ -525,6 +556,12 @@ final class MCLauncherModel: ObservableObject {
 
     @Published var play: Play { didSet { UserDefaults.standard.set(play.rawValue, forKey: "mclauncher.play") } }
     @Published var server: String { didSet { UserDefaults.standard.set(server, forKey: "mclauncher.server") } }
+    /// Windowed or Immersive VR — the player's explicit choice, windowed until
+    /// chosen otherwise (MCPlayMode.swift). Exported at every Launch.
+    @Published var playMode: MCPlayMode { didSet { MCPlayMode.store(playMode) } }
+    /// Turning in VR: Smooth or 45° Snap (default), applied to the selected
+    /// profile's Vivecraft config at every Launch (MCTurningPreferences.swift).
+    @Published var turning: MCTurning { didSet { MCTurning.store(turning) } }
     @Published var resolution: Resolution?       // nil = the env file holds another value
     @Published var customEye: String?
     @Published var worlds: [MCWorld] = []
@@ -542,14 +579,21 @@ final class MCLauncherModel: ObservableObject {
     /// have changed (Continue's newest world), and so may the env file.
     func gameEnded() {
         gamesEnded += 1
+        MCLaunchProgress.shared.end()
         refresh()
     }
 
     private init() {
         play = Play(rawValue: UserDefaults.standard.string(forKey: "mclauncher.play") ?? "") ?? .title
         server = UserDefaults.standard.string(forKey: "mclauncher.server") ?? ""
+        playMode = MCPlayMode.stored
+        turning = MCTurning.stored
         readResolution()
     }
+
+    /// The mode this process is committed to, once a game has booted: the
+    /// chooser locks to it and the caption says how to change it.
+    var playModeFixed: Bool { MCPlayMode.applied != nil }
 
     var newest: MCWorld? { worlds.first }
 
@@ -645,10 +689,170 @@ final class MCLauncherModel: ObservableObject {
         MCProfiles.prepareForLaunch()
         if argv.isEmpty { unsetenv("KL_MC_LAUNCH_ARGV") }
         else { setenv("KL_MC_LAUNCH_ARGV", argv.joined(separator: "\n"), 1) }
+        // The play mode, on EVERY path — a dev autoboot included — so the
+        // runtime never falls back to its compiled-in VR default. A process
+        // already committed to a mode re-exports that one; the chooser follows.
+        let mode = MCPlayMode.apply(playMode)
+        if mode != playMode { playMode = mode }
         let m = MSAAccounts.shared
-        NSLog("[launcher] Launch: account %@, play %@, eye %@", m.selectionLabel,
-              argv.isEmpty ? "title screen" : argv.joined(separator: " "),
+        NSLog("[launcher] Launch: account %@, play %@, mode %@ (%@), eye %@", m.selectionLabel,
+              argv.isEmpty ? "title screen" : argv.joined(separator: " "), mode.rawValue,
+              MCPlayMode.isRemembered ? "remembered preselection, Play pressed" : "default, Play pressed",
               MCEnv.fileValue("KL_OVRP_EYE_MAX") ?? "row default")
+    }
+}
+
+// --- launch progress -------------------------------------------------------------
+//
+// The compact loading strip under Launch. BootView owns the boot thread and
+// the full log; this reads only the TAIL of the same file (klepton-boot.log in
+// the container — kl_app.c's native_configure names it, OwnershipGateLog
+// appends to it) twice a second while a launch is starting, and turns the
+// milestones kl_app.c prints into a sentence a player can read. Display only:
+// nothing here is read by the launch, the gate or the boot, and a milestone
+// that never appears simply leaves the previous sentence up.
+
+/// (a line kl_app.c / the game prints, what the player reads). The marker
+/// whose LAST occurrence is furthest down the tail wins, so a repeated line
+/// cannot move the stage backwards. Two markers that start at the same place
+/// ("[msa] offline-owned account" is also "[msa] offline") resolve to the one
+/// listed FIRST — keep the longer one first. The first group is kl_app.c's own
+/// text (kl_app_boot, native_boot, native_profile_gamedir, native_msa_args,
+/// native_launcher_args, native_build_argv); the second is the game's standard
+/// console lines. File scope so the nonisolated scanner may read it.
+private let mcLaunchMilestones: [(marker: String, text: String)] = [
+    ("=== Klepton on visionOS", "Starting the runtime…"),
+    ("=== the native guest", "Loading the game engine…"),
+    (".dylib mapped in", "Game engine loaded…"),
+    ("[native] game dir", "Preparing your profile…"),
+    ("[msa] session for", "Signed in to your Microsoft account…"),
+    ("[msa] offline-owned account", "Playing offline under your account name…"),
+    ("[msa] offline", "Playing offline…"),
+    ("[launcher] play target from the launcher window", "Opening your world…"),
+    ("[native] command line", "Starting Minecraft…"),
+    ("Setting user:", "Starting Minecraft…"),
+    ("Backend library", "Starting the renderer…"),
+    ("Reloading ResourceManager", "Loading resources…"),
+    ("OpenAL initialized", "Starting audio…"),
+]
+
+@MainActor
+final class MCLaunchProgress: ObservableObject {
+    static let shared = MCLaunchProgress()
+
+    @Published private(set) var stage = "Starting Minecraft…"
+    @Published private(set) var started: Date?
+    private var task: Task<Void, Never>?
+
+    /// kl_app.c's boot log (native_configure names it); MCFailureReport exports it.
+    nonisolated static var logURL: URL { URL(fileURLWithPath: Paths.container).appendingPathComponent("klepton-boot.log") }
+
+    /// Idempotent: a second call while running is a no-op (the view calls it
+    /// on appear as well as on the running edge, because "details" and back
+    /// rebuild the view).
+    func begin() {
+        guard task == nil else { return }
+        started = Date()
+        stage = "Starting Minecraft…"
+        let url = MCLaunchProgress.logURL
+        task = Task { [weak self] in
+            // Bounded: the window is hidden once the space is up, and the log
+            // keeps growing for the whole session. Two minutes covers a load.
+            let deadline = Date().addingTimeInterval(120)
+            while !Task.isCancelled, Date() < deadline {
+                let tail = await Task.detached { MCLaunchProgress.tail(url, bytes: 32 << 10) }.value
+                if let tail, let s = MCLaunchProgress.stage(in: tail), let self, s != self.stage {
+                    self.stage = s
+                    NSLog("[launcher] progress: %@", s)
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            self?.task = nil
+        }
+    }
+
+    func end() {
+        task?.cancel()
+        task = nil
+        started = nil
+    }
+
+    nonisolated static func tail(_ url: URL, bytes: Int) -> String? {
+        guard let h = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? h.close() }
+        guard let end = try? h.seekToEnd() else { return nil }
+        let from = end > UInt64(bytes) ? end - UInt64(bytes) : 0
+        guard (try? h.seek(toOffset: from)) != nil, let d = try? h.readToEnd() else { return nil }
+        return String(decoding: d, as: UTF8.self)
+    }
+
+    nonisolated static func stage(in text: String) -> String? {
+        var best: (pos: String.Index, text: String)?
+        for m in mcLaunchMilestones {
+            guard let r = text.range(of: m.marker, options: .backwards) else { continue }
+            if best == nil || r.lowerBound > best!.pos { best = (r.lowerBound, m.text) }
+        }
+        return best?.text
+    }
+}
+
+// --- a failed launch: the short code on screen, the whole truth in a file ----------------
+//
+// kl_app_status() is the real reason ("missing staged launch.txt (run
+// stage_assets.sh): /…", "the native guest library did not load…"). It is not
+// product copy, and a configure failure never reaches klepton-boot.log (the
+// log is opened by boot, after configure), so the status would otherwise live
+// only in a SwiftUI label. This writes it, verbatim, with the build identity
+// and the time, to Documents/launch-report.txt — private to the device until
+// the player taps Export — and shows a short code derived from it.
+
+enum MCFailureReport {
+    static var url: URL { URL(fileURLWithPath: Paths.container).appendingPathComponent("launch-report.txt") }
+
+    /// What Export shares: the launch report and the runtime log, whichever exist.
+    static var exportItems: [URL] {
+        [url, MCLaunchProgress.logURL].filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// "E-FILES-3fa2": a family from kl_app.c's own status families, and four
+    /// hex digits of the exact text so the report line can be matched to it.
+    static func code(for status: String) -> String {
+        let s = status.lowercased()
+        let family: String
+        if s.hasPrefix("missing ") { family = "FILES" }                        // kl_app.c missing()
+        else if s.contains("did not load") || s.contains("dlopen") { family = "ENGINE" }
+        else if s.contains("already run") || s.contains("was not called") || s.contains("not booted") { family = "STATE" }
+        else if s.contains("log file") { family = "LOG" }
+        else if s.contains("thread") { family = "THREAD" }
+        else { family = "START" }
+        var h: UInt32 = 0x811c9dc5                                           // FNV-1a
+        for b in status.utf8 { h = (h ^ UInt32(b)) &* 0x01000193 }
+        return "E-\(family)-" + String(format: "%04x", h & 0xffff)
+    }
+
+    /// The sentence beside the code, by family.
+    static func hint(for status: String) -> String {
+        switch code(for: status).split(separator: "-")[1] {
+        case "FILES": return "Some of the game's files are missing. Install the latest update, then try again."
+        case "ENGINE": return "Minecraft could not start. Close and reopen the app, then try again."
+        case "THREAD", "LOG": return "The device ran short of resources while starting. Close other apps and try again."
+        default: return "Close and reopen the app to try again."
+        }
+    }
+
+    /// Append one record. Never throws; display state does not depend on it.
+    static func record(status: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date()))  \(MCBuildIdentity.short) (\(MCBuildIdentity.bundleID))\n"
+            + "code: \(code(for: status))\nstatus: \(status)\n\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if let h = try? FileHandle(forWritingTo: url) {
+            defer { try? h.close() }
+            _ = try? h.seekToEnd()
+            try? h.write(contentsOf: data)
+        } else {
+            try? data.write(to: url, options: .atomic)
+        }
+        NSLog("[launcher] launch failed: %@ — %@ (launch-report.txt)", code(for: status), status)
     }
 }
 
@@ -778,6 +982,68 @@ private struct MCPanel<C: View>: View {
     }
 }
 
+// --- build identity -------------------------------------------------------------
+//
+// Which binary a screenshot shows. Read from the bundle Xcode wrote
+// (CFBundleVersion = KLEPTON_BUILD_VERSION, CFBundleShortVersionString =
+// KLEPTON_MARKETING_VERSION), never a literal, so the label cannot disagree with
+// the installed app. The Minecraft version is appended only when launch.txt in
+// the container names one (MCTheme reads it with the textures); otherwise the
+// label is just the build and the app version. Display only: nothing here is
+// read by the launch, the gate, or the boot.
+
+enum MCBuildIdentity {
+    static let build: String = info("CFBundleVersion") ?? "?"
+    static let version: String = info("CFBundleShortVersionString") ?? "?"
+    static let bundleID: String = Bundle.main.bundleIdentifier ?? "?"
+    /// What the product calls itself: the bundle's CFBundleDisplayName
+    /// ("Vivecraft"), or "Minecraft" when the Info.plist has none —
+    /// the same rule BootView.reportTitle applies to the diagnostics heading.
+    static let product: String = info("CFBundleDisplayName") ?? "Minecraft"
+
+    /// "Build 12 · v1.0.1"
+    static var short: String { "Build \(build) · v\(version)" }
+
+    /// `short`, plus " · Minecraft 26.2" when the instance version is known.
+    static func label(minecraft: String?) -> String {
+        guard let mc = minecraft?.trimmingCharacters(in: .whitespaces), !mc.isEmpty else { return short }
+        return short + " · Minecraft " + mc
+    }
+
+    /// One line in the log, the first time a footer is drawn.
+    static let logged: Void = {
+        NSLog("[build] %@ (%@)", short, bundleID)
+    }()
+
+    private static func info(_ key: String) -> String? {
+        guard let v = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+              !v.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return v
+    }
+}
+
+/// The small footer line. `id` names the screen for the accessibility audit
+/// ("build-identity.<id>"); `light` picks the dark-backdrop colour (launcher)
+/// or the secondary colour (the plain report window).
+struct MCBuildFooter: View {
+    @ObservedObject private var theme = MCTheme.shared
+    let id: String
+    var light = true
+
+    init(id: String, light: Bool = true) { self.id = id; self.light = light }
+
+    var body: some View {
+        let text = MCBuildIdentity.label(minecraft: theme.instanceVersion)
+        Text(text)
+            .font(.footnote.monospacedDigit())
+            .foregroundStyle(light ? Color.white.opacity(0.85) : Color.secondary)
+            .lineLimit(1)
+            .accessibilityIdentifier("build-identity." + id)
+            .accessibilityLabel(text)
+            .onAppear { _ = MCBuildIdentity.logged }
+    }
+}
+
 struct MCLauncherView: View {
     var running: Bool
     var finished: Bool
@@ -790,8 +1056,15 @@ struct MCLauncherView: View {
     @ObservedObject private var model = MCLauncherModel.shared
     @ObservedObject private var theme = MCTheme.shared
     @ObservedObject private var heads = MCHeads.shared
+    @ObservedObject private var progress = MCLaunchProgress.shared
+    /// The About sheet (credits, licensing, the way into diagnostics).
+    @State private var showAbout = false
+    /// A failed launch's "Technical details" disclosure.
+    @State private var showFailureDetails = false
 
     private var locked: Bool { running || finished }
+    /// A launch that did not go through: the boot thread ended without a game.
+    private var failed: Bool { finished && !succeeded }
     private var accountsReady: Bool {
         !MSAAccounts.wanted || m.selection == MSAStore.offline || m.accounts.contains { $0.id == m.selection }
     }
@@ -800,7 +1073,7 @@ struct MCLauncherView: View {
         OwnershipGate.blocksLaunch(ready: m.gateReady, unlocked: m.deviceUnlocked)
     }
     private var canLaunch: Bool {
-        !locked && accountsReady && model.micAnswered && playReady && !m.addBusy && !gateShut
+        !locked && accountsReady && model.micAnswered && playReady && !m.addBusy && m.rechecking == nil && !gateShut
     }
 
     var body: some View {
@@ -818,10 +1091,30 @@ struct MCLauncherView: View {
                 launchRow
             }
             .padding(28)
+            // About — credits, licensing, diagnostics — out of the play path,
+            // in the corner. The report is behind it, not beside Launch.
+            Button { showAbout = true } label: { Image(systemName: "info.circle") }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("About")
+                .accessibilityIdentifier("launcher.about")
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
+        .sheet(isPresented: $showAbout) { MCAboutView() }
         .onAppear {
             theme.load()
             model.refresh()
+            if running { progress.begin() }   // the view was rebuilt mid-launch
+            if failed { MCFailureReport.record(status: status) }
+        }
+        .onChange(of: running) { _, now in
+            if now { progress.begin() }
+        }
+        .onChange(of: finished) { _, now in
+            if now, !succeeded { MCFailureReport.record(status: status) }
+        }
+        .onChange(of: model.quitting) { _, now in
+            if now { progress.end() }
         }
         // Each card has its own worlds (per-account game dirs).
         .onChange(of: m.selection) { model.rescanWorlds() }
@@ -864,6 +1157,11 @@ struct MCLauncherView: View {
                 } else if let p = MCLauncherModel.Play(rawValue: arg) { model.play = p }
             case "eye":
                 if let n = Int(arg), let r = MCLauncherModel.Resolution(rawValue: n) { model.setResolution(r) }
+            case "mode":
+                // windowed|immersive — a script chooses the way a person does; it
+                // cannot bypass the per-process lock either.
+                if let mode = MCPlayMode(rawValue: arg), !model.playModeFixed { model.playMode = mode }
+                else { NSLog("[launcher] script: play mode %@ not applied (fixed=%d)", arg, model.playModeFixed ? 1 : 0) }
             case "details": model.details = true
             case "back": model.details = false
             case "wait": try? await Task.sleep(for: .seconds(Double(arg) ?? 1))
@@ -920,27 +1218,29 @@ struct MCLauncherView: View {
         // that is how an owning sign-in unlocks the device.
         let showAccounts = MSAAccounts.wanted || gateShut
         if !showAccounts {
-            Label("Accounts are off (KL_MSA=0) — this launch plays offline.", systemImage: "person.slash")
+            // A developer run (KL_MSA=0); the sentence stays product copy anyway.
+            Label("Accounts are turned off for this launch. The game plays offline.", systemImage: "person.slash")
                 .foregroundStyle(.white.opacity(0.8))
         } else {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 180), spacing: 14)], spacing: 14) {
                     ForEach(m.accounts, id: \.id) { a in
                         if a.resolved && !a.owns {
-                            // A free account: no Java Edition, plays offline under its own name.
-                            card(id: a.id, name: m.label(a), subtitle: "Offline", head: theme.steve, removable: true,
-                                 grey: true)
+                            // No Java profile (none bought, or not set up yet): plays offline under its own name.
+                            card(id: a.id, name: m.label(a), subtitle: a.needsJavaProfile ? "Set up Java profile" : "Offline",
+                                 head: theme.steve, removable: true, grey: true)
                         } else {
                             card(id: a.id, name: m.label(a), subtitle: a.resolved ? (a.lastError.isEmpty ? "Microsoft" : "Offline if refresh fails") : (a.lastError.isEmpty ? "Signing in…" : a.lastError),
                                  head: heads.head(for: a), removable: true)
                         }
                     }
-                    card(id: MSAStore.offline, name: "Offline", subtitle: "No servers", head: theme.steve, removable: false)
+                    card(id: MSAStore.offline, name: "Offline", subtitle: "No online servers", head: theme.steve, removable: false)
                     addCard
                 }
                 .padding(4)
             }
             addStatus
+            if let a = m.accounts.first(where: { $0.id == m.selection }) { MSAJavaStatusNote(account: a, light: true) }
         }
     }
 
@@ -1089,25 +1389,95 @@ struct MCLauncherView: View {
             }
 
             Divider().overlay(Color.white.opacity(0.2))
-            MCText("Resolution", size: 18, rgb: (255, 255, 160))
-            HStack(spacing: 8) {
-                ForEach(MCLauncherModel.Resolution.allCases, id: \.self) { r in
-                    Button { model.setResolution(r) } label: {
-                        VStack(spacing: 0) {
-                            MCText(r.label, size: 16)
-                            Text("\(r.rawValue)").font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.75))
+            playModeRow
+
+            if model.playMode == .immersive {
+                Divider().overlay(Color.white.opacity(0.2))
+                MCText("Resolution", size: 18, rgb: (255, 255, 160))
+                HStack(spacing: 8) {
+                    ForEach(MCLauncherModel.Resolution.allCases, id: \.self) { r in
+                        Button { model.setResolution(r) } label: {
+                            VStack(spacing: 0) {
+                                MCText(r.label, size: 16)
+                                Text("\(r.rawValue)").font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.75))
+                            }
                         }
+                        .buttonStyle(MCButtonStyle(selected: model.resolution == r, height: 50))
                     }
-                    .buttonStyle(MCButtonStyle(selected: model.resolution == r, height: 50))
                 }
+                .disabled(locked)
+                // A custom value comes from a hand-edited settings file (a dev run);
+                // the player just needs to know one is set and that a tap replaces it.
+                Text(model.customEye.map { "A custom resolution of \($0) pixels per eye is set. Picking one here replaces it." }
+                     ?? "Pixels per eye. Sharp is the tested default; Max may judder.")
+                    .font(.caption).foregroundStyle(.white.opacity(0.7))
+
+                Divider().overlay(Color.white.opacity(0.2))
+                turningRow
             }
-            .disabled(locked)
-            Text(model.customEye.map { "klepton-env.txt sets KL_OVRP_EYE_MAX=\($0); picking one replaces it." }
-                 ?? "Pixels per eye. Sharp is the tested default; Max may judder.")
-                .font(.caption).foregroundStyle(.white.opacity(0.7))
 
             Divider().overlay(Color.white.opacity(0.2))
             micRow
+        }
+    }
+
+    /// Turning in VR: Vivecraft's own continuous turn (Smooth) or its 45°
+    /// snap (the default here). Written to the selected account's
+    /// Vivecraft settings when Play is pressed, every time, so the game runs
+    /// what the launcher shows. Not locked after boot: a re-run re-reads it.
+    private var turningRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            MCText("Turning", size: 18, rgb: (255, 255, 160))
+            HStack(spacing: 8) {
+                ForEach(MCTurning.allCases, id: \.self) { t in
+                    Button { model.turning = t } label: {
+                        VStack(spacing: 0) {
+                            MCText(t.title, size: 16)
+                            Text(t.subtitle).font(.caption2).foregroundStyle(.white.opacity(0.75))
+                        }
+                    }
+                    .buttonStyle(MCButtonStyle(selected: model.turning == t, height: 50))
+                    .accessibilityIdentifier("launcher.turning." + t.rawValue)
+                }
+            }
+            .disabled(locked)
+            Text((model.turning == .smooth
+                  ? "Smooth turns the world continuously while you hold the turn stick."
+                  : "Snap turns the world in 45° steps on each stick flick.")
+                 + " Applied to this account's Vivecraft settings each time you press Play; the turn stick itself is unchanged."
+                 + (MCTurning.isRemembered ? "" : " Snap 45 is the default."))
+                .font(.caption).foregroundStyle(.white.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("launcher.turning.caption")
+        }
+    }
+
+    /// Windowed / Immersive VR, chosen BEFORE Play. Immersive VR is
+    /// the default here and stays so until the player picks Windowed; once a game has
+    /// booted the process is committed to its mode and the row says how to
+    /// change it. The per-eye Resolution row applies to VR only, so it follows.
+    private var playModeRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            MCText("Play mode", size: 18, rgb: (255, 255, 160))
+            HStack(spacing: 8) {
+                ForEach(MCPlayMode.allCases, id: \.self) { mode in
+                    Button { model.playMode = mode } label: {
+                        VStack(spacing: 0) {
+                            MCText(mode.title, size: 16)
+                            Text(mode.subtitle).font(.caption2).foregroundStyle(.white.opacity(0.75))
+                        }
+                    }
+                    .buttonStyle(MCButtonStyle(selected: model.playMode == mode, height: 50))
+                    .accessibilityIdentifier("launcher.playmode." + mode.rawValue)
+                }
+            }
+            .disabled(locked || model.playModeFixed)
+            Text(model.playModeFixed
+                 ? "This session is set to \(model.playMode.title.lowercased()). Close and reopen the app to change the play mode."
+                 : model.playMode.caption + " " + MCPlayMode.originSentence)
+                .font(.caption).foregroundStyle(.white.opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("launcher.playmode.caption")
         }
     }
 
@@ -1137,41 +1507,240 @@ struct MCLauncherView: View {
     private var launchRow: some View {
         VStack(spacing: 12) {
             if OwnershipGate.enforced && m.gateReady && !m.deviceUnlocked {
-                Text(OwnershipGate.sentence)
+                Text(OwnershipGate.lockedSentence(for: m.accounts))
                     .font(.body)
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity)
             }
-            HStack(spacing: 18) {
-                Button("Details", systemImage: "list.bullet.rectangle") { onDetails() }
-                    .buttonStyle(.bordered)
+            if failed { failureCard }
+            else if let why = refusal { refusalNote(why) }
+            HStack(alignment: .center, spacing: 18) {
+                // Left: what the launch is doing (compact), or nothing when idle.
+                progressStrip
+                    .frame(width: 300, alignment: .leading)
                 Spacer()
+                // The labelled Play action: it names where the game will appear,
+                // so immersive is never a surprise.
                 Button { onLaunch() } label: {
                     HStack(spacing: 12) {
-                        if running || model.quitting { ProgressView() }
+                        if running || model.quitting { ProgressView().tint(.white) }
                         MCText(model.quitting ? "Quitting…" : running ? "Launching…"
-                               : finished ? (succeeded ? "Playing" : "Stopped") : "Launch", size: 30)
+                               : finished ? (succeeded ? "Playing" : "Stopped") : model.playMode.playButtonTitle, size: 28)
                     }
                 }
                 .buttonStyle(MCButtonStyle(height: 72))
                 .frame(width: 440)
                 .disabled(!canLaunch)
+                .accessibilityIdentifier("launcher.launch")
+                .accessibilityLabel(model.playMode.playButtonTitle)
                 Spacer()
                 Text(footer).font(.footnote).foregroundStyle(.white.opacity(0.8))
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 220, alignment: .trailing)
+                    .frame(width: 300, alignment: .trailing)
             }
+            // Build identity: under the Launch row on every launcher state —
+            // idle, Launching…, Playing, Quitting… — so any screenshot of this
+            // window names the build. Display only.
+            MCBuildFooter(id: "launcher")
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    /// Launching: a thin indeterminate bar, the stage sentence, the elapsed
+    /// time. Playing: one line saying so. Idle, stopped, quitting: nothing —
+    /// the Launch button already says the word.
+    @ViewBuilder private var progressStrip: some View {
+        if running {
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView().progressViewStyle(.linear).tint(.white)
+                HStack(spacing: 8) {
+                    Text(progress.stage).font(.callout).foregroundStyle(.white).lineLimit(1)
+                        .accessibilityIdentifier("launcher.progress")
+                    Spacer(minLength: 0)
+                    if let t = progress.started {
+                        Text(t, style: .timer).font(.callout.monospacedDigit()).foregroundStyle(.white.opacity(0.75))
+                    }
+                }
+            }
+        } else if finished, succeeded, !model.quitting {
+            Label(model.playMode.playingSentence, systemImage: "play.circle.fill")
+                .font(.callout).foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            Color.clear.frame(height: 1)
+        }
+    }
+
+    /// A launch that stopped before the game ran. The plain sentence and a
+    /// hint by family first; a short code behind one tap (never the raw
+    /// status, never a framework report); Export shares the launch report
+    /// (which holds the status verbatim) and the runtime log. BootView does
+    /// not re-arm a finished boot in the same process, so the honest next step
+    /// is a relaunch of the app.
+    private var failureCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Minecraft couldn't start.", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline).foregroundStyle(.white)
+            Text(MCFailureReport.hint(for: status))
+                .font(.callout).foregroundStyle(.white.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+            DisclosureGroup(isExpanded: $showFailureDetails) {
+                HStack(spacing: 10) {
+                    Text(MCFailureReport.code(for: status))
+                        .font(.system(.callout, design: .monospaced).bold())
+                        .foregroundStyle(.white)
+                        .textSelection(.enabled)
+                        .accessibilityIdentifier("launcher.failure.code")
+                    Text("Quote this code if you ask for help. The exported report has the full detail.")
+                        .font(.caption).foregroundStyle(.white.opacity(0.75))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 4)
+            } label: {
+                Text("Technical code").font(.callout).foregroundStyle(.white)
+            }
+            .tint(.white)
+            let items = MCFailureReport.exportItems
+            if !items.isEmpty {
+                ShareLink(items: items) { Label("Export diagnostics", systemImage: "square.and.arrow.up") }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+                    .accessibilityIdentifier("launcher.failure.export")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.orange.opacity(0.8), lineWidth: 2))
+        .accessibilityIdentifier("launcher.failure")
+    }
+
+    /// A Launch after Quit Game that was refused (kl_app_native_rerun: the
+    /// previous run has not ended, or no re-run in this process). BootView
+    /// leaves the launcher idle with the reason in `status`; it was only in the
+    /// log before. Shown until the next state change, in plain words.
+    private var refusal: String? {
+        guard !running, !finished, model.gamesEnded > 0, !model.quitting else { return nil }
+        let s = status.trimmingCharacters(in: .whitespaces)
+        guard !s.isEmpty, s != "idle", !s.hasPrefix("game ended") else { return nil }
+        if s.contains("has not ended") { return "The previous game is still closing. Try again in a moment." }
+        if s.contains("no re-run") { return "This app can run one game per session. Close and reopen the app to play again." }
+        return "Launch didn't go through. Close and reopen the app to try again."
+    }
+
+    private func refusalNote(_ why: String) -> some View {
+        Label(why, systemImage: "info.circle")
+            .font(.callout).foregroundStyle(.white)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("launcher.refusal")
+    }
+
     private var footer: String {
-        if finished, !succeeded { return status }
+        if failed { return "Stopped" }
         if locked { return "as \(m.selectionLabel)" }
         if !model.micAnswered { return "Waiting for the microphone prompt" }
         if !playReady { return "Type a server address" }
         if m.addBusy { return "Finish adding the account" }
+        if m.rechecking != nil { return "Checking the account…" }
         return MSAAccounts.wanted ? "as \(m.selectionLabel)" : "offline"
+    }
+}
+
+// --- About: credits, licensing, the diagnostics export ----------------------------
+//
+// The upstream runtime is credited HERE rather than on the product screen,
+// and as ONE item of the Made-with list rather than a heading: the heading is
+// the product's name (MCBuildIdentity.product). Everything stated is what the
+// source says this build is made of; a bundled CREDITS/LICENSES text, when the
+// bundle carries one, is shown verbatim beneath it so licensing can be
+// completed without a code change (MCCredits.bundledText). There is no way
+// from here into the runtime's report window; the diagnostics are files the
+// player can export.
+
+enum MCCredits {
+    /// The components, as the host names them (kl_app.c, KleptonMCProfiles.swift).
+    static let components: [(name: String, role: String)] = [
+        ("Minecraft: Java Edition", "the game, by Mojang Studios — owned by the signed-in Microsoft account"),
+        ("Vivecraft", "the VR mod the game runs with"),
+        ("Fabric Loader", "the mod loader"),
+        ("GraalVM Native Image", "the ahead-of-time compilation of the game"),
+        ("ANGLE", "OpenGL ES on Metal"),
+        ("Klepton", "the visionOS runtime: OpenXR, graphics, audio, input and the launcher"),
+    ]
+
+    static let notice = "Minecraft is a trademark of Microsoft/Mojang. This app is not affiliated with or endorsed by Microsoft, Mojang Studios or the Vivecraft project. Playing requires a Microsoft account that owns Minecraft: Java Edition."
+
+    /// `CREDITS.txt` or `LICENSES.txt` at the bundle root, if the build ships one.
+    static var bundledText: String? {
+        for name in ["LICENSES", "CREDITS", "Credits", "Licenses"] {
+            if let p = Bundle.main.path(forResource: name, ofType: "txt"),
+               let t = try? String(contentsOfFile: p, encoding: .utf8),
+               !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return t }
+        }
+        return nil
+    }
+}
+
+struct MCAboutView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(MCBuildIdentity.product).font(.largeTitle.bold())
+                        MCBuildFooter(id: "about", light: false)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Made with").font(.headline)
+                        ForEach(MCCredits.components, id: \.name) { c in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(c.name).bold().frame(width: 220, alignment: .leading)
+                                Text(c.role).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .font(.callout)
+                        }
+                    }
+
+                    Text(MCCredits.notice).font(.footnote).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let text = MCCredits.bundledText {
+                        Divider()
+                        Text("Licenses").font(.headline)
+                        Text(text)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    let items = MCFailureReport.exportItems
+                    if !items.isEmpty {
+                        Divider()
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Diagnostics").font(.headline)
+                            Text("The diagnostics files are stored only on this device. They name files, worlds and account names, so share them only with someone you trust.")
+                                .font(.callout).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            ShareLink(items: items) { Label("Export diagnostics", systemImage: "square.and.arrow.up") }
+                                .accessibilityIdentifier("about.export")
+                        }
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle("About")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .frame(minWidth: 640, minHeight: 520)
     }
 }

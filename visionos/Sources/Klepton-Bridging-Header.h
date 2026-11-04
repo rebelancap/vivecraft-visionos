@@ -38,3 +38,5 @@
 // where it reads the fence value. The eye TEXTURE still arrives through
 // kl_glfb's own table, so nothing else about this seam widens.
 #import "kl_vulkan.h"
+
+#include "MCAudioOpenAL.h"

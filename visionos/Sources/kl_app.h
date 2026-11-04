@@ -124,6 +124,18 @@ int  kl_app_native_rc(void);
 int  kl_app_native_rerun_ok(void);
 int  kl_app_native_rerun(void);
 
+// Flat Minecraft gamepad input into the current libklglfw event ring. Main
+// thread only. New presses/motion require a running windowed native guest;
+// releases remain accepted after game/focus loss. Cursor moves are deltas:
+// unbounded when grabbed, surface-clamped in menus, and track game warps.
+int  kl_app_native_windowed_ready(void);
+int  kl_app_native_windowed_cursor_mode(void);
+void kl_app_native_windowed_key(int key, int down);
+void kl_app_native_windowed_button(int button, int down);
+void kl_app_native_windowed_move(double dx, double dy);
+void kl_app_native_windowed_scroll(double y);
+void kl_app_native_windowed_release_all(void);
+
 // Which guest this app was built for, and whether it is the Steam Link one.
 //
 // Valid after kl_app_configure; before that the name is "(unconfigured)" and the

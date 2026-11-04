@@ -39,7 +39,11 @@ KLT = targets_mod.resolve(os.environ.get("KLEPTON_TARGET") or targets_mod.DEFAUL
 # The Swift sources are still Klepton*.swift whatever the product is called —
 # they are the app layer, shared by every target, and renaming them per build
 # would be five file copies to say one thing.
-NAME = KLT["product"]
+NAME = os.environ.get("KLEPTON_PRODUCT_NAME", KLT["product"])
+PROJECT_NAME = os.environ.get("KLEPTON_PROJECT_NAME", KLT.get("project", NAME))
+for label, value in (("product", NAME), ("project", PROJECT_NAME)):
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", value):
+        raise SystemExit(f"invalid {label} name")
 BUNDLE_ID = os.environ.get("KLEPTON_BUNDLE_ID", KLT["bundle"])
 
 # What the Home View shows under the icon. Deliberately NOT the same knob as
@@ -48,9 +52,7 @@ BUNDLE_ID = os.environ.get("KLEPTON_BUNDLE_ID", KLT["bundle"])
 # Renaming the target to reach the Home View would rewrite all of those to
 # change a string the user reads; CFBundleDisplayName is the string the user
 # reads. Quoted in the pbxproj because it contains a space.
-# The summary line below is the only reader left: the pbxproj itself takes
-# KLT["display"] from targets.py. Defaulting this to a literal game name made
-# every other target's summary claim it was Beat Saber.
+# Keep the generated build settings and summary in agreement.
 DISPLAY_NAME = os.environ.get("KLEPTON_DISPLAY_NAME", KLT["display"])
 
 # The app icon, by asset-catalog name. KLEPTON_APPICON= (empty) ships no icon
@@ -158,7 +160,18 @@ INFOPLIST_FILE = "Info.plist"
 # keys .playAndRecord off this same key, so every other target keeps the
 # .playback session it has always had.
 _MIC = "libopus4j" in KLT["libs"].split()
-if KLT["immersion"] != targets_mod.IMMERSION_DEFAULT or _MIC:
+# Background-audio eligibility, per target (targets.py "background_audio"). The
+# native Minecraft row's immersive world keeps playing after its launcher window
+# closes, which takes the app phase to background; playback there needs the
+# declaration. It permits audio, it does not force it: KleptonAudio still pauses
+# and deactivates on Crown/Home. A flag on any other kind is a mistake in the
+# table, so it stops the build rather than being silently dropped — and the flag
+# alone forces the rewrite, even for a row on the default style without a mic.
+_BG_AUDIO = bool(KLT.get("background_audio"))
+if _BG_AUDIO and KLT.get("kind") != "native":
+    raise SystemExit(f"!! {KLT['name']}: background_audio is for the native "
+                     f"(Minecraft) row only, not kind {KLT.get('kind')!r}")
+if KLT["immersion"] != targets_mod.IMMERSION_DEFAULT or _MIC or _BG_AUDIO:
     import plistlib
     _src = pathlib.Path(__file__).with_name("Info.plist")
     _d = plistlib.loads(_src.read_bytes())
@@ -174,6 +187,15 @@ if KLT["immersion"] != targets_mod.IMMERSION_DEFAULT or _MIC:
         _d["NSMicrophoneUsageDescription"] = ("Voice chat: other players hear you "
                                               "through the game's voice chat.")
         print("  NSMicrophoneUsageDescription: on (voice chat)")
+    if _BG_AUDIO:
+        # Merged, not replaced: any mode the base plist already declares stays.
+        _modes = _d.get("UIBackgroundModes", [])
+        if not isinstance(_modes, list) or not all(isinstance(m, str) for m in _modes):
+            raise SystemExit("!! Info.plist UIBackgroundModes is not an array of strings")
+        if "audio" not in _modes:
+            _modes = _modes + ["audio"]
+        _d["UIBackgroundModes"] = _modes
+        print(f"  UIBackgroundModes: {', '.join(_modes)}")
     _out = pathlib.Path(__file__).with_name("build") / f"Info-{KLT['name']}.plist"
     _out.parent.mkdir(parents=True, exist_ok=True)
     _out.write_bytes(plistlib.dumps(_d))
@@ -265,6 +287,7 @@ C_PRJ_D = oid("CPRJD"); C_PRJ_R = oid("CPRJR")
 C_TGT_D = oid("CTGTD"); C_TGT_R = oid("CTGTR")
 F_C = oid("FC"); F_H = oid("FH"); F_BRIDGE = oid("FBRDG")
 B_C = oid("BC")
+F_AUDIO_C = oid("FAUDIOC"); B_AUDIO_C = oid("BAUDIOC")
 
 # The Swift half of the language split: the App/UI, and the Compositor Services
 # renderer adds. A list rather than an id pair each, for the same reason
@@ -272,7 +295,7 @@ B_C = oid("BC")
 SWIFT = ["KleptonApp.swift", "KleptonCompositor.swift", "KleptonControllers.swift",
          "KleptonAudio.swift", "KleptonShell.swift", "KleptonTuning.swift",
          "KleptonChroma.swift", "KleptonMSA.swift", "KleptonPayload.swift",
-         "KleptonMCLauncher.swift", "KleptonMCProfiles.swift", "OwnershipGate.swift"]
+         "KleptonMCLauncher.swift", "KleptonMCProfiles.swift", "MCUIComfort.swift", "MCHUDPitch.swift", "MCPlayMode.swift", "MCWindowedInput.swift", "MCTurningPreferences.swift", "OwnershipGate.swift"]
 swift = [{"name": s, "ref": oid(f"FS{i}"), "bld": oid(f"BS{i}")} for i, s in enumerate(SWIFT)]
 
 swift_buildfiles = "\n".join(
@@ -350,7 +373,8 @@ COMMON = f"""
 					"$(inherited)",
 					"KL_TARGET_DEFAULT=\\\\\\"{KLT['name']}\\\\\\"",
 				);
-				INFOPLIST_KEY_CFBundleDisplayName = "{KLT['display']}";
+				INFOPLIST_KEY_CFBundleDisplayName = "{DISPLAY_NAME}";
+				INFOPLIST_KEY_CFBundleName = "{NAME}";
 				INFOPLIST_KEY_GCSupportsControllerUserInteraction = YES;
 				// NOT UIApplicationSceneManifest_Generation. Setting it makes Xcode
 				// GENERATE the scene manifest and overwrite the one in Info.plist —
@@ -401,6 +425,7 @@ PBX = f"""// !$*UTF8*$!
 /* Begin PBXBuildFile section */
 {swift_buildfiles}
 		{B_C} /* kl_app.c in Sources */ = {{isa = PBXBuildFile; fileRef = {F_C}; }};
+		{B_AUDIO_C} /* MCAudioOpenAL.c in Sources */ = {{isa = PBXBuildFile; fileRef = {F_AUDIO_C}; }};
 		{B_ASSETS} /* Assets.xcassets in Resources */ = {{isa = PBXBuildFile; fileRef = {F_ASSETS}; }};
 		{B_RT_LNK} /* Klepton.xcframework in Frameworks */ = {{isa = PBXBuildFile; fileRef = {F_RT}; }};
 {buildfiles}
@@ -410,6 +435,7 @@ PBX = f"""// !$*UTF8*$!
 		{PRODUCT} /* {NAME}.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {NAME}.app; sourceTree = BUILT_PRODUCTS_DIR; }};
 {swift_filerefs}
 		{F_C} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = kl_app.c; sourceTree = "<group>"; }};
+		{F_AUDIO_C} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = MCAudioOpenAL.c; sourceTree = "<group>"; }};
 		{F_H} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kl_app.h; sourceTree = "<group>"; }};
 		{F_BRIDGE} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Klepton-Bridging-Header.h"; sourceTree = "<group>"; }};
 		{F_ASSETS} = {{isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; }};
@@ -514,6 +540,7 @@ PBX = f"""// !$*UTF8*$!
 			children = (
 {swift_children}
 				{F_C},
+				{F_AUDIO_C},
 				{F_H},
 				{F_BRIDGE},
 			);
@@ -594,6 +621,7 @@ PBX = f"""// !$*UTF8*$!
 			files = (
 {swift_sources}
 				{B_C},
+				{B_AUDIO_C},
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		}};
@@ -695,7 +723,7 @@ def main():
               file=sys.stderr)
         return 1
 
-    proj = os.path.join(HERE, f"{NAME}.xcodeproj")
+    proj = os.path.join(HERE, f"{PROJECT_NAME}.xcodeproj")
     os.makedirs(proj, exist_ok=True)
     with open(os.path.join(proj, "project.pbxproj"), "w") as f:
         f.write(PBX)

@@ -43,7 +43,8 @@ export MCV="${MCV:-26.2}"
 eval "$(python3 targets.py "${KLEPTON_TARGET:-}")"
 export KLEPTON_TARGET="$KLT_NAME"
 BUNDLE_ID="${KLEPTON_BUNDLE_ID:-$KLT_BUNDLE}"
-PRODUCT="$KLT_PRODUCT"
+PRODUCT="${KLEPTON_PRODUCT_NAME:-$KLT_PRODUCT}"
+PROJECT="${KLEPTON_PROJECT_NAME:-${KLT_PROJECT:-$PRODUCT}}"
 MODE="${1:-sim}"
 
 # Build the slice THIS run will install and not the other one. A device build
@@ -244,7 +245,7 @@ print(phys[0]["identifier"])
   # configuration in gen_xcodeproj.py sets.
   CONFIG="${KL_XCODE_CONFIG:-Release}"
   set +e
-  xcodebuild -project "$PRODUCT.xcodeproj" -scheme "$PRODUCT" -configuration "$CONFIG" \
+  xcodebuild -project "$PROJECT.xcodeproj" -scheme "$PRODUCT" -configuration "$CONFIG" \
     -destination 'generic/platform=visionOS' -derivedDataPath "build/dd-device-$KLT_NAME" \
     -allowProvisioningUpdates "${XCODE_SETTINGS[@]}" build 2>&1 \
     | tee /tmp/vivecraft-visionos-xcode-device.log \
@@ -496,7 +497,7 @@ UDID="${KLEPTON_SIM_UDID:-$(xcrun simctl list devices booted | grep -o '[0-9A-F-
 
 echo "[3/5] building for the simulator…"
 set +e
-xcodebuild -project "$PRODUCT.xcodeproj" -scheme "$PRODUCT" \
+xcodebuild -project "$PROJECT.xcodeproj" -scheme "$PRODUCT" \
   -destination "platform=visionOS Simulator,id=$UDID" \
   -derivedDataPath "build/dd-sim-$KLT_NAME" CODE_SIGNING_ALLOWED=NO "${XCODE_SETTINGS[@]}" build 2>&1 \
   | tee /tmp/vivecraft-visionos-xcode-sim.log \
@@ -520,7 +521,15 @@ for fw in "$APP"/Frameworks/*.framework "$APP"/Frameworks/*.dylib; do
   codesign --force --sign - --timestamp=none "$fw" >/dev/null 2>&1 \
     || echo "!! could not ad-hoc sign $fw"
 done
-# The path rewrite touches the main executable too. Ad-hoc is enough here.
+# The path rewrite touches the main executable too, and a Debug simulator
+# build keeps the Swift code in $PRODUCT.debug.dylib beside it (plus
+# __preview.dylib): left unsigned after the rewrite, the app is killed with
+# "Code Signature Invalid" before main. Ad-hoc is enough here.
+for dl in "$APP"/*.dylib; do
+  [ -e "$dl" ] || continue
+  codesign --force --sign - --timestamp=none "$dl" >/dev/null 2>&1 \
+    || echo "!! could not ad-hoc sign $dl"
+done
 codesign --force --sign - --timestamp=none "$APP/$PRODUCT" >/dev/null 2>&1 \
   || echo "!! could not ad-hoc sign $APP/$PRODUCT"
 

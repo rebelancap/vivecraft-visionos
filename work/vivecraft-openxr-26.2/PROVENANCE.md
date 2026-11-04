@@ -2,7 +2,7 @@
 
 Stage B of M3: self-built Vivecraft OpenXR (mobile/GLES path) for Minecraft 26.2.
 Everything below is re-fetchable; the clone, toolchain and build outputs are
-safe to delete (only REPORT.md, PROVENANCE.md, check-touch-map.py and patches/ are committed).
+safe to delete (only REPORT.md, PROVENANCE.md, check-touch-map.py, canonicalize-vivecraft-jar.py and its test, tests/ and patches/ are committed).
 
 | Item | Source | Pin | Local path | Re-fetch |
 |---|---|---|---|---|
@@ -15,3 +15,24 @@ safe to delete (only REPORT.md, PROVENANCE.md, check-touch-map.py and patches/ a
 
 Cleanup: `rm -rf VivecraftMod qc-OpenXR-1.21.10 gradle-home host-probe *.log` loses nothing that
 REPORT.md + patches/ cannot rebuild (GraalVM 25 sits with the native-image toolchain and is kept).
+
+## 2026-11-04: patch 0006 and the canonical jar
+
+Patch 0006 (from zschwendi/avp-craft) lowers the head-locked in-world HUD: it makes `hudPitchOffset` act on the
+no-screen head HUD (position and orientation rotated together about the head's right axis; menus, wrist/hand and
+the seated alternate-aim HUD are untouched) and changes the new-profile defaults to HEAD / 2.0 m / 0.8 scale / -15
+degrees. Existing saved settings win. The git tree after 0001-0006 is `bc542a09e32f6f9b74f54ddb4a37373d2b32c902`
+(after 0001-0005 it is `68f88122e716fdbb7f6613490503739c9baf07c2`; `8297f0ec...` is the private 0005 commit id,
+not a tree).
+
+The raw Loom jar is not byte-reproducible: nested-jar ZIP metadata changes between builds while every payload byte
+stays the same. `canonicalize-vivecraft-jar.py <raw.jar> <out.jar>` rewrites it as a sorted, stored ZIP with fixed
+metadata; the pin in `../native-image/scripts/m3a/mods-26.2.json` is the canonical jar,
+`VivecraftMod/build/canonical/vivecraft-26.2-1.3.15-fabric.jar`, 19,032,717 bytes, sha256
+`f317964c49f8e1dace17dcc4ea4a8d4f9d29c7e5a2888c61b73259f4355deac4`. Reproduced here on 2026-11-04 with GraalVM
+25.0.4+7.1 as JAVA_HOME, Gradle 9.3.0, Loom 1.15.5, Fabric API 0.161.0+26.2; avp-craft got the same hash with
+OpenJDK 25.0.4.1. The canonical form of the old 0001-0005 jar (`e241a4c2...`) is `5324e012fe0072cb7471e36349d40395d2ab63a7e8f9609f0b35a67a53a0d62b`.
+
+`test_canonicalize_vivecraft_jar.py` tests the normalizer (`python3 -I test_canonicalize_vivecraft_jar.py`).
+`tests/hud_pitch_source_contract.py <patched VivecraftMod> [<unpatched tree>]` checks the 0006 call site and
+defaults; `tests/HudPitchTransformTest.java` checks `HeadHudPitch` numerically against the real JOML/Minecraft classes.

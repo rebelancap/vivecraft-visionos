@@ -65,3 +65,11 @@ msa-refresh.json
 /BRIEF.md
 /STATUS.md
 /ota/
+
+# Clean-clone build downloads and generated native dependencies.
+/work/src/
+/work/natives/openal/
+/work/vivecraft-openxr-26.2/VivecraftMod/
+/work/native-image/bakeagent/
+/work/native-image/baked/
+/work/native-image/lwjgl-fork-t4/

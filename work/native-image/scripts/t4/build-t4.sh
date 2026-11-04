@@ -73,8 +73,16 @@ rm $I/cp.lines
 esac
 grep -q "$I/baked/t4:" $I/t4.cp && grep -q "$I/baked/t4:" $I/t4-ni.cp
 # substitutions + harness (T3 + T4)
+mkdir -p "$W/baked/t23-stubs"
+STUB_SOURCES=()
+while IFS= read -r -d '' source; do STUB_SOURCES+=("$source"); done < <(find "$W/scripts/t3-src/stubs" -name '*.java' -print0)
+[ "${#STUB_SOURCES[@]}" -gt 0 ] || { echo "Missing T23 stub sources"; exit 1; }
+"$G/bin/javac" -nowarn -d "$W/baked/t23-stubs" "${STUB_SOURCES[@]}"
 rm -rf $I/baked/t4; mkdir -p $I/baked/t4
 SUBST="$(ls $W/scripts/t3-src/*.java $S/subst/*.java | grep -v -F "${SUBST_SKIP:-/nothing/}") $(ls $S/subst-$MCV/*.java 2>/dev/null)"
 $G/bin/javac -nowarn -d $I/baked/t4 -cp "$(cat $I/t4-ni.cp)" $SUBST
 ls -la $D $D/natives $I/baked/t4
-unzip -l $D/lwjgl-glfw-t4.jar | tail -1
+case $MCV in
+  1.*) unzip -l "$D/lwjgl-glfw-t4.jar" | tail -1 ;;
+  *) unzip -l "$I/klglfw/lwjgl-glfw-klglfw-3.4.1.jar" | tail -1 ;;
+esac

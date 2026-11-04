@@ -304,7 +304,7 @@ slink-vr-scene: build/m_boot
 # a truncated print, and "make the token longer" was never the shape of it.
 #
 # Read the last "fault:"/"fatal:" line, not make's exit code.
-KL_SLINK_SARGS ?= 192.168.1.50~10400~10400~0,0,1~~~~dGVzdA==
+KL_SLINK_SARGS ?= 192.0.2.50~10400~10400~0,0,1~~~~dGVzdA==
 slink-vr-run: build/m_boot
 	KL_SLINK_VR=1 KL_SLINK_MAIN=1 KL_GLFB=1 KL_NOFORK=1 KL_SLINK_WAIT=25 \
 	  KL_SLINK_SARGS='$(KL_SLINK_SARGS)' ./build/m_boot $(SLINK)

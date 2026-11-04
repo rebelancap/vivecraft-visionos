@@ -55,10 +55,15 @@ VER="klmc t8a $(date -u +%Y-%m-%dT%H:%MZ) $SDKNAME ni=$(shasum -a 256 $OBJ | cut
 xcrun --sdk $SDKNAME clang -target $TRIPLE -isysroot $SDK -O2 -c -o $DST/klmc_entry.o -DKLMC_VERSION="\"$VER\"" $S/klmc_entry.c
 OUTF=$DST/libminecraft.dylib
 T0=$(date +%s)
-xcrun --sdk $SDKNAME clang -target $TRIPLE -isysroot $SDK -dynamiclib -o $OUTF $OBJ $DST/klmc_entry.o \
+# Link to a temp name and check clang's own status: a dylib left by an earlier run must never pass for this link.
+LINKOUT=$DST/.libminecraft.dylib.partial; rm -f "$LINKOUT"
+RC=0
+xcrun --sdk $SDKNAME clang -target $TRIPLE -isysroot $SDK -dynamiclib -o "$LINKOUT" $OBJ $DST/klmc_entry.o \
   -Wl,-exported_symbols_list,$DST/exported_symbols.list -install_name @rpath/libminecraft.dylib \
-  "${ARGS[@]}" "${LIBFLAGS[@]}" -Wl,-x ${EXTRA_LDFLAGS:-} 2>&1 | grep -v 'reducing alignment of section' || true
-[ -f $OUTF ] || { echo "LINK FAILED"; exit 1; }
+  "${ARGS[@]}" "${LIBFLAGS[@]}" -Wl,-x ${EXTRA_LDFLAGS:-} > "$DST/link.log" 2>&1 || RC=$?
+grep -v 'reducing alignment of section' "$DST/link.log" || true
+[ "$RC" = 0 ] && [ -s "$LINKOUT" ] || { echo "LINK FAILED ($RC); see $DST/link.log" >&2; rm -f "$LINKOUT"; exit 1; }
+mv -f "$LINKOUT" "$OUTF"
 echo "[relink] link $(( $(date +%s) - T0 )) s"
 rm -rf $ARCH
 # --- verify

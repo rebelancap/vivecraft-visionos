@@ -74,9 +74,9 @@ for P in ${*:-macosx xrsimulator xros}; do
   rm -rf $OUT/$P/libklglfw.dylib.dSYM
   if [ $P = xrsimulator ]; then codesign -f -s - $OUT/$P/libklglfw.dylib 2>/dev/null; fi
   echo "libklglfw $P: $(xcrun vtool -show-build $OUT/$P/libklglfw.dylib | awk '/platform/{print $2}') $(stat -f%z $OUT/$P/libklglfw.dylib) B"
-  if [ -f $OUT/BUILT-lwjgl-$P ] && [ -f $OUT/$P/liblwjgl.dylib ] && [ -f $OUT/USAGE.md ]; then
+  if [ -f $OUT/BUILT-lwjgl-$P ] && [ -f $OUT/$P/liblwjgl.dylib ] && [ -f $K/lwjgl-glfw-klglfw-3.4.1.jar ]; then
     date '+%Y-%m-%d %H:%M:%S %Z' > $OUT/READY-$P; echo "READY-$P"
   else
-    echo "NOT READY-$P (need BUILT-lwjgl-$P from build-lwjgl341-natives.sh and USAGE.md)"
+    echo "NOT READY-$P (need BUILT-lwjgl-$P, liblwjgl.dylib and the klglfw jar)"
   fi
 done

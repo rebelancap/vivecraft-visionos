@@ -37,7 +37,7 @@ Mojang libraries with no license file of their own, shipped as part of the clien
 | BadOptimizations | 2.4.1 | MIT | https://github.com/imthosea/BadOptimizations |
 | Better Biome Blend | 1.4.0 | LGPL-3.0 | https://github.com/FionaTheMortal/better-biome-blend |
 
-Vivecraft's upstream `LICENSE.md` also covers Minecrift (LGPL-3.0-or-later, Pete Tabram and Mark Browning, 2013), and it restates the notices for JNA, NightConfig, LWJGL, JavaOSC, and Fabric API. The jar itself has no license file. The patches in `work/vivecraft-openxr-26.2/patches/` (0001–0005) are the changes this repo makes, on upstream `openxr` at `13eafae1`, tree `8297f0ecc84bb25aecf714c23dae661cf6cdf626`.
+Vivecraft's upstream `LICENSE.md` also covers Minecrift (LGPL-3.0-or-later, Pete Tabram and Mark Browning, 2013), and it restates the notices for JNA, NightConfig, LWJGL, JavaOSC, and Fabric API. The jar itself has no license file. The patches in `work/vivecraft-openxr-26.2/patches/` (0001–0006) are the changes this repo makes, on upstream `openxr` at `13eafae1`; the patched commit is `8297f0ec` (0001–0005) and the tree after 0006 is `bc542a09e32f6f9b74f54ddb4a37373d2b32c902`. The image shipped in release 1.0.1 was baked from 0001–0005 (see UPSTREAM.md).
 
 **Sodium.** Polyform Shield 1.0.0, not LGPL. The full text from the jar's `LICENSE.md` is [LICENSES/Polyform-Shield-1.0.0.md](LICENSES/Polyform-Shield-1.0.0.md). The same text ships in the IPA. Canonical URL: https://polyformproject.org/licenses/shield/1.0.0. The license requires that anyone who receives the software also receives these terms, or that URL. The jar has no extra `Required Notice:` lines.
 

@@ -2860,6 +2860,10 @@ void kl_app_native_windowed_release_all(void) {
 
 static void native_pointer(int state, int action, float x, float y) {
     if (!g_native_push) return;
+    // A scroll carries wheel deltas in x/y, not a position: it must neither
+    // move the cursor nor become the flat-input tracker's "known" position
+    // (the next gamepad move would continue from roughly (0, ±1)).
+    if (action == KL_MONO_SCROLL) { g_native_push(KLG_SCROLL, 0, 0, 0, 0, x, y); return; }
     native_flat_note_pointer(x, y);
     g_native_push(KLG_CURSOR, 0, 0, 0, 0, x, y);
     if (action == KL_MONO_DOWN) {
@@ -2868,8 +2872,6 @@ static void native_pointer(int state, int action, float x, float y) {
     } else if (action == KL_MONO_UP && g_native_button >= 0) {
         native_flat_button(g_native_button, 0, 1);
         g_native_button = -1;
-    } else if (action == KL_MONO_SCROLL) {
-        g_native_push(KLG_SCROLL, 0, 0, 0, 0, x, y);
     }
 }
 // Android keycodes (what kl_mono_keycode_for_char produces) -> GLFW keys, plus

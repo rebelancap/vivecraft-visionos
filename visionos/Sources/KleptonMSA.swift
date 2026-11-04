@@ -20,7 +20,15 @@ import UIKit
 //   -> Minecraft (/authentication/login_with_xbox -> 24 h access token)
 //   -> profile   (/minecraft/profile -> name + uuid)
 //
-// FREE accounts (no Java Edition, profile 404) play OFFLINE under their own
+// A profile 404 means "no Java profile", not "no Java Edition": a paid Java
+// Edition whose profile (player name) was never set up answers the same. So a
+// 404 asks /entitlements/mcstore (same token, read-only): Java Edition listed
+// = needsProfile (set it up at minecraft.net/msaprofile, then Check again);
+// a list without it = notEntitled; no clear answer (network, 403, 429, 5xx,
+// no list) = a service error that keeps whatever was stored before. Neither
+// 404 outcome is ownership proof; only the profile 200 is.
+//
+// FREE accounts (profile 404, either outcome) play OFFLINE under their own
 // name, MultiMC-style: a second XSTS exchange (relying party
 // http://xboxlive.com, same XBL token) reads the gamertag (xui[0].gtg) and xid;
 // the account is stored with ownsGame=false, name = the gamertag made a valid
@@ -28,7 +36,10 @@ import UIKit
 // derives from that name (offlineUUID). kl_app.c then sets only --username and
 // --uuid (launch.txt's --accessToken 0 / offline userType stay). A failed
 // refresh never blocks a free account (it plays with the stored name); a
-// refresh that finds the profile (they bought the game) upgrades the record.
+// refresh that finds the profile (bought, or set up) upgrades the record. Only
+// a notEntitled result is cached for the day; a needsProfile record, and a
+// free record from before the entitlements were read, are asked again when
+// the window opens and at boot.
 //
 // Accounts, PrismLauncher-style:
 //   Library/klepton-msa/<tree>/accounts.json  {"default": <id>|"offline",
@@ -66,6 +77,7 @@ private let msaClientID = "d17a73a2-707c-40f5-8c90-d3eda0956f10"
 private let msaAuthority = "https://login.microsoftonline.com/consumers/oauth2/v2.0"
 private let msaScopes = "XboxLive.SignIn XboxLive.offline_access"
 private let msaUserAgent = "QCXR/6.0.0"
+private let mcEntitlementsURL = "https://api.minecraftservices.com/entitlements/mcstore"
 
 private struct MSAFail: Error { let reason: String }
 
@@ -78,6 +90,7 @@ private struct MCSession {
     var skin: String? = nil    // the ACTIVE skin's texture URL (launcher avatar)
     var owns = true            // false = free account: offline name + offline uuid, no token
     var gamertag: String? = nil
+    var needsProfile = false   // free, but the entitlements list Java Edition (profile not set up)
     var secondsLeft: Double { expiresOn / 1000 - Date().timeIntervalSince1970 }
 }
 
@@ -105,8 +118,16 @@ struct MSAAccount: Codable, Equatable {
     /// MCProfiles). Assigned once, the first time the account launches, and
     /// never changed — not even when a free account buys the game.
     var profileKey: String?
+    /// What the last decisive check found: an OwnershipGateLogic.JavaCheck
+    /// raw value (owner, needsProfile, notEntitled). A string, not the enum,
+    /// so a value this build does not know still decodes. nil = the
+    /// entitlements were never asked (an owner from before, or a free record
+    /// judged by the profile 404 alone, which is asked again).
+    var javaCheck: String?
     var resolved: Bool { !uuid.isEmpty && !name.isEmpty }
     var owns: Bool { ownsGame ?? true }
+    /// Java Edition is on the account, its Java profile is not set up yet.
+    var needsJavaProfile: Bool { !owns && javaCheck == OwnershipGateLogic.JavaCheck.needsProfile.rawValue }
 }
 
 private struct MSAFile: Codable {
@@ -281,20 +302,41 @@ private func minecraftSession(_ msaToken: String) throws -> MCSession {
     let expiresIn = (mc["expires_in"] as? NSNumber)?.doubleValue ?? 86400
 
     let (s5, prof) = try call("profile", "https://api.minecraftservices.com/minecraft/profile", bearer: mcToken)
-    if s5 == 404 { return try freeSession(xblToken) }
-    guard let name = prof["name"] as? String, let id = prof["id"] as? String else {
-        throw MSAFail(reason: "profile failed (HTTP \(s5))")
+    if s5 != 404 {
+        let name = prof["name"] as? String ?? "", id = prof["id"] as? String ?? ""
+        guard OwnershipGateLogic.classify(profileStatus: s5, profileHasIdentity: !name.isEmpty && !id.isEmpty,
+                                          entitlementsStatus: nil, javaEntitled: nil) == .owner else {
+            throw serviceFail("profile", s5)
+        }
+        let skins = prof["skins"] as? [[String: Any]] ?? []
+        let skin = (skins.first { ($0["state"] as? String) == "ACTIVE" } ?? skins.first)?["url"] as? String
+        return MCSession(accessToken: mcToken, expiresOn: (Date().timeIntervalSince1970 + expiresIn) * 1000,
+                         username: name, uuid: dashed(id), xuid: xuidClaim(mcToken), skin: skin)
     }
-    let skins = prof["skins"] as? [[String: Any]] ?? []
-    let skin = (skins.first { ($0["state"] as? String) == "ACTIVE" } ?? skins.first)?["url"] as? String
-    return MCSession(accessToken: mcToken, expiresOn: (Date().timeIntervalSince1970 + expiresIn) * 1000,
-                     username: name, uuid: dashed(id), xuid: xuidClaim(mcToken), skin: skin)
+
+    // No Java profile. Whether Java Edition is on the account is the
+    // entitlements' answer; the reply carries signed JWTs and is never logged.
+    let (s6, ent) = try call("entitlements", mcEntitlementsURL, bearer: mcToken)
+    let items = (ent["items"] as? [[String: Any]]).map { $0.compactMap { $0["name"] as? String } }
+    switch OwnershipGateLogic.classify(profileStatus: s5, profileHasIdentity: false, entitlementsStatus: s6,
+                                       javaEntitled: OwnershipGateLogic.javaEntitled(items: items)) {
+    case .needsProfile: return try freeSession(xblToken, needsProfile: true)
+    case .notEntitled: return try freeSession(xblToken, needsProfile: false)
+    case .owner, .serviceError: throw serviceFail("entitlements", s6, noList: s6 == 200 && items == nil)
+    }
 }
 
-/// A Microsoft account without Java Edition: its gamertag, through XSTS for
+/// A reply that decides nothing. The caller keeps the stored license state.
+private func serviceFail(_ step: String, _ status: Int, noList: Bool = false) -> MSAFail {
+    MSAFail(reason: "\(step) check failed (HTTP \(status)\(noList ? ", no entitlement list" : "")): "
+        + "a Minecraft services problem, not a license answer — try again")
+}
+
+/// A Microsoft account without a Java profile: its gamertag, through XSTS for
 /// Xbox Live itself (the Minecraft relying party carries no gamertag). Plays
-/// offline under that name; no Minecraft token is kept.
-private func freeSession(_ xblToken: String) throws -> MCSession {
+/// offline under that name; no Minecraft token is kept. `needsProfile` = the
+/// entitlements list Java Edition (still not ownership proof: no profile).
+private func freeSession(_ xblToken: String, needsProfile: Bool) throws -> MCSession {
     let (s, x) = try call("xsts (xboxlive)", "https://xsts.auth.xboxlive.com/xsts/authorize", json: [
         "Properties": ["SandboxId": "RETAIL", "UserTokens": [xblToken]],
         "RelyingParty": "http://xboxlive.com", "TokenType": "JWT"])
@@ -305,12 +347,14 @@ private func freeSession(_ xblToken: String) throws -> MCSession {
     guard let claims = x["DisplayClaims"] as? [String: Any],
           let xui = (claims["xui"] as? [[String: Any]])?.first,
           let gtg = xui["gtg"] as? String, !gtg.trimmingCharacters(in: .whitespaces).isEmpty else {
-        throw MSAFail(reason: "no Java Edition on this account, and Xbox gave no gamertag (HTTP \(s))")
+        throw MSAFail(reason: needsProfile
+            ? "Java Edition is on this account but its Java profile is not set up (minecraft.net/msaprofile), and Xbox gave no gamertag (HTTP \(s))"
+            : "no Java Edition on this account, and Xbox gave no gamertag (HTTP \(s))")
     }
     let name = playerName(gtg)
     return MCSession(accessToken: "", expiresOn: (Date().timeIntervalSince1970 + 86400) * 1000,
                      username: name, uuid: offlineUUID(name), xuid: xui["xid"] as? String ?? "",
-                     owns: false, gamertag: gtg)
+                     owns: false, gamertag: gtg, needsProfile: needsProfile)
 }
 
 // --- device-code sign-in (Add account…) ----------------------------------------
@@ -460,9 +504,14 @@ final class MSAStore: @unchecked Sendable {
             NSLog("[msa] %@ (profile %@) no longer owns Java Edition: plays offline", a.name, k)
         }
         if s.owns, !a.owns, a.resolved { NSLog("[msa] %@ now owns Java Edition: upgraded to %@", a.name, s.username) }
+        if s.needsProfile, !a.needsJavaProfile {
+            NSLog("[msa] %@: Java Edition is on the account, its Java profile is not set up yet (minecraft.net/msaprofile)", s.username)
+        }
         a.name = s.username; a.uuid = s.uuid; a.xuid = s.xuid
         a.refreshToken = refresh; a.accessToken = s.accessToken; a.expiresOn = s.expiresOn
         a.ownsGame = s.owns
+        a.javaCheck = (s.owns ? OwnershipGateLogic.JavaCheck.owner
+            : s.needsProfile ? .needsProfile : .notEntitled).rawValue
         a.gamertag = s.gamertag
         if let skin = s.skin { a.skin = skin } else if !s.owns { a.skin = nil }
         a.lastError = ""
@@ -528,19 +577,30 @@ final class MSAStore: @unchecked Sendable {
 
     /// A usable session for account `id`: the cached token while > 1 h is left,
     /// else the refresh chain (network outside the lock). (session, note).
-    fileprivate func session(for id: String) -> (MCSession?, String) {
+    /// `force` (Check again) skips the cache.
+    fileprivate func session(for id: String, force: Bool = false) -> (MCSession?, String) {
         guard let a = edit({ f in f.accounts.first(where: { $0.id == id }) }) else {
             return (nil, "account not found")
         }
         let cached: MCSession? = a.resolved && (!a.accessToken.isEmpty || !a.owns)
             ? MCSession(accessToken: a.accessToken, expiresOn: a.expiresOn, username: a.name, uuid: a.uuid, xuid: a.xuid,
-                        owns: a.owns, gamertag: a.gamertag)
+                        owns: a.owns, gamertag: a.gamertag, needsProfile: a.needsJavaProfile)
             : nil
-        // A free account re-checks once a day (expiresOn = resolve + 24 h), so
-        // a purchase upgrades it within a day.
-        if let c = cached, c.secondsLeft > 3600 { return (c, "cached") }
+        // A free account the entitlements confirmed re-checks once a day
+        // (expiresOn = resolve + 24 h), so a purchase upgrades it within a
+        // day. One still to set up its profile, or judged by a 404 alone, is
+        // asked every time.
+        let trusted = OwnershipGateLogic.cacheTrusted(ownsGame: a.ownsGame, javaCheck: a.javaCheck)
+        if !force, trusted, let c = cached, c.secondsLeft > 3600 { return (c, "cached") }
         do {
             let (access, newRefresh) = try msaRefresh(a.refreshToken)
+            // Microsoft rotates the refresh token on every use: keep the new
+            // one now, so a profile or entitlement failure below cannot lose it.
+            if newRefresh != a.refreshToken {
+                edit { f in
+                    if let i = f.accounts.firstIndex(where: { $0.id == id }) { f.accounts[i].refreshToken = newRefresh }
+                }
+            }
             let s = try minecraftSession(access)
             edit { f in _ = storeSession(s, refresh: newRefresh, into: id, &f) }
             return (s, "refreshed")
@@ -581,6 +641,28 @@ final class MSAStore: @unchecked Sendable {
     func resolvePending() {
         let ids = edit { f in f.accounts.filter { !$0.resolved && $0.lastError.isEmpty }.map(\.id) }
         for id in ids { _ = session(for: id) }
+    }
+
+    /// Ask again for every resolved account whose stored answer is not final
+    /// (OwnershipGateLogic.recheckOnOpen). A failure only sets lastError: the
+    /// stored license state stays. Network: off main.
+    func recheckStale() {
+        let ids = edit { f in
+            f.accounts.filter {
+                OwnershipGateLogic.recheckOnOpen(resolved: $0.resolved, ownsGame: $0.ownsGame, javaCheck: $0.javaCheck)
+            }.map(\.id)
+        }
+        for id in ids { _ = session(for: id) }
+    }
+
+    /// Check again (the wearer asked): the whole chain now, cache or not. An
+    /// unresolved account whose sign-in failed retries with its stored token.
+    /// Network: off main.
+    func recheck(_ id: String) {
+        let (s, note) = session(for: id, force: true)
+        guard let s, note == "refreshed" else { NSLog("[msa] check again failed: %@", note); return }
+        NSLog("[msa] check again: %@", s.owns ? "owns Java Edition"
+              : s.needsProfile ? "Java Edition, Java profile not set up yet" : "no Java Edition")
     }
 
     static func summary(_ snap: Snapshot) -> String {
@@ -627,6 +709,16 @@ final class MSAStore: @unchecked Sendable {
 
 enum OwnershipGate {
     static let sentence = "Sign in with a Microsoft account that owns Minecraft: Java Edition to unlock this device."
+    static let profileSetupSentence = "Minecraft: Java Edition is on a signed-in account, but its Java profile is not set up yet. Set it up at minecraft.net/msaprofile, then Check again to unlock this device."
+    /// Microsoft's page for creating the Java profile (player name).
+    static let profileSetupURL = URL(string: "https://www.minecraft.net/msaprofile")!
+
+    /// The locked-device line: the profile-setup one when that is what stands
+    /// between a signed-in account and the unlock. Wording only; the gate
+    /// itself is isDeviceUnlocked.
+    static func lockedSentence(for accounts: [MSAAccount]) -> String {
+        accounts.contains { $0.needsJavaProfile } ? profileSetupSentence : sentence
+    }
 
     /// False for any target that is not the Minecraft row, and for a Debug
     /// build that was compiled with KL_OWNERSHIP_GATE_OFF. Release cannot
@@ -755,6 +847,32 @@ private enum OwnershipGateProbe {
             stored: back.deviceUnlocked,
             accounts: back.accounts.map { .init(resolved: $0.resolved, ownsGame: $0.ownsGame) })
         if !kept { return "removing the owner (flag already set, only a free account left) re-locked" }
+
+        // javaCheck: absent (older files) and unknown values decode; a
+        // profile still to be set up is free and proves nothing.
+        var setup = free
+        setup.javaCheck = OwnershipGateLogic.JavaCheck.needsProfile.rawValue
+        guard let one = try? JSONEncoder().encode(setup),
+              var acct = (try? JSONSerialization.jsonObject(with: one)) as? [String: Any] else {
+            return "account encode failed"
+        }
+        guard let setupBack = try? JSONDecoder().decode(MSAAccount.self, from: one), setupBack.needsJavaProfile else {
+            return "needsProfile did not round-trip"
+        }
+        if OwnershipGateLogic.Account(resolved: setupBack.resolved, ownsGame: setupBack.ownsGame).provesOwnership {
+            return "a Java profile still to be set up proved ownership"
+        }
+        acct["javaCheck"] = "later-build"
+        guard let odd = try? JSONSerialization.data(withJSONObject: acct),
+              let oddBack = try? JSONDecoder().decode(MSAAccount.self, from: odd), !oddBack.needsJavaProfile else {
+            return "unknown javaCheck value did not decode"
+        }
+        acct.removeValue(forKey: "javaCheck")
+        guard let old = try? JSONSerialization.data(withJSONObject: acct),
+              let oldBack = try? JSONDecoder().decode(MSAAccount.self, from: old), oldBack.javaCheck == nil,
+              oldBack.refreshToken == "rt-free" else {
+            return "account without javaCheck did not decode"
+        }
         return nil
     }
 }
@@ -866,7 +984,10 @@ final class MSAAccounts: ObservableObject {
     @Published var countdown = 0
     @Published var add: AddState = .idle
     @Published var resolving = false
+    /// The account a Check again is running for.
+    @Published var rechecking: String?
     private var loaded = false
+    private var staleChecked = false       // recheckStale: once per process
     private var addCancelled = MSABox(false)
 
     private var store: MSAStore { MSAStore.forTree(tree) }
@@ -892,17 +1013,40 @@ final class MSAAccounts: ObservableObject {
     }
 
     /// Load (migration + inbox) and show the list at once, then resolve any
-    /// unresolved account in the background and show its name.
+    /// unresolved account in the background and show its name. The first
+    /// load also asks again for any account whose stored answer is not final
+    /// (a Java profile still to be set up; a free record from a 404 alone).
     func reload() async {
         let s = store
         let snap = await Task.detached { s.snapshot() }.value
         publish(snap)
         NSLog("[msa] accounts: %@", MSAStore.summary(snap))
-        guard snap.accounts.contains(where: { !$0.resolved && $0.lastError.isEmpty }) else { return }
+        let stale = !staleChecked && snap.accounts.contains {
+            OwnershipGateLogic.recheckOnOpen(resolved: $0.resolved, ownsGame: $0.ownsGame, javaCheck: $0.javaCheck)
+        }
+        staleChecked = true
+        guard stale || snap.accounts.contains(where: { !$0.resolved && $0.lastError.isEmpty }) else { return }
         resolving = true
-        let after = await Task.detached { s.resolvePending(); return s.snapshot() }.value
+        let after = await Task.detached {
+            s.resolvePending()
+            if stale { s.recheckStale() }
+            return s.snapshot()
+        }.value
         resolving = false
         publish(after)
+    }
+
+    /// Check again for account `id`, in the background.
+    func recheck(id: String) {
+        hold = true
+        guard id != MSAStore.offline, rechecking == nil, !resolving else { return }
+        rechecking = id
+        let s = store
+        Task {
+            let snap = await Task.detached { s.recheck(id); return s.snapshot() }.value
+            rechecking = nil
+            publish(snap)
+        }
     }
 
     func makeDefault() { makeDefault(id: selection) }
@@ -978,9 +1122,11 @@ final class MSAAccounts: ObservableObject {
                         if cancelled.v { return }
                         set(.finishing)
                         let name = try s.add(msaAccess: access, refresh: refresh)
-                        let free = s.snapshot().accounts.first(where: { $0.name == name }).map { !$0.owns } ?? false
-                        NSLog("[msa] account added: %@%@", name, free ? " (free account: no Java Edition, plays offline)" : "")
                         let snap = s.snapshot()
+                        let added = snap.accounts.first(where: { $0.name == name })
+                        NSLog("[msa] account added: %@%@", name,
+                              added?.needsJavaProfile == true ? " (Java Edition, Java profile not set up yet: plays offline)"
+                              : added.map { !$0.owns } == true ? " (free account: no Java Edition, plays offline)" : "")
                         Task { @MainActor in
                             let m = MSAAccounts.shared
                             if cancelled.v { return }
@@ -1000,6 +1146,49 @@ final class MSAAccounts: ObservableObject {
     }
 
     func cancelAdd() { addCancelled.v = true; add = .idle }
+}
+
+/// The selected account's Java Edition status in words, with what to do next
+/// (both account panels). Nothing for an owner whose last check went through.
+struct MSAJavaStatusNote: View {
+    @ObservedObject var m = MSAAccounts.shared
+    var account: MSAAccount
+    var light = false          // the launcher's dark panels
+
+    static func text(_ a: MSAAccount) -> String? {
+        let last = a.lastError.isEmpty ? "" : " Last check: \(a.lastError)."
+        if !a.resolved { return a.lastError.isEmpty ? nil : "Sign-in did not finish: \(a.lastError)." }
+        if a.needsJavaProfile {
+            return "Minecraft: Java Edition is on this Microsoft account, but its Java profile (player name) is not set up yet. Set it up at minecraft.net/msaprofile, then Check again." + last
+        }
+        if !a.owns {
+            if a.javaCheck == OwnershipGateLogic.JavaCheck.notEntitled.rawValue {
+                return "Minecraft services list no Java Edition on this Microsoft account. If Java Edition is on a different Microsoft account, add that one. Check again after any change." + last
+            }
+            return "Java Edition is not confirmed for this account yet. Check again." + last
+        }
+        return a.lastError.isEmpty ? nil : "The last check did not go through: \(a.lastError). The saved sign-in is kept."
+    }
+
+    var body: some View {
+        if let text = Self.text(account) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label(text, systemImage: account.needsJavaProfile ? "person.badge.plus"
+                      : account.lastError.isEmpty ? "info.circle" : "exclamationmark.triangle")
+                    .foregroundStyle(light ? Color.white : Color.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    if account.needsJavaProfile {
+                        Link("Set up Java profile", destination: OwnershipGate.profileSetupURL)
+                    }
+                    Button(m.rechecking == account.id ? "Checking…" : "Check again") { m.recheck(id: account.id) }
+                        .disabled(m.rechecking != nil || m.resolving || m.addBusy)
+                    if m.rechecking == account.id { ProgressView().controlSize(.small) }
+                }
+            }
+            .font(.callout)
+        }
+    }
 }
 
 struct AccountsPanel: View {
@@ -1038,6 +1227,7 @@ struct AccountsPanel: View {
                 }
             }
             addView
+            if let a = m.accounts.first(where: { $0.id == m.selection }) { MSAJavaStatusNote(account: a) }
         }
         .font(.callout)
     }

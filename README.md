@@ -20,6 +20,8 @@ The game stays closed on a device until a Microsoft account that owns Minecraft:
 
 That sign-in is remembered on the device. After it, accounts that do not own the game can play, and so can the Offline profile. Adding those accounts does not unlock a device, and removing the owning account does not lock it again. A release build has no switch that skips this check.
 
+An account that bought Java Edition but never set up its Java profile (the player name) does not unlock the device either. Minecraft only hands out the player name once that profile exists. The launcher tells you when this is the case: see **Set up Java profile** under [Launcher](#launcher).
+
 ## Install
 
 Add the SideStore source, then install vivecraft-visionos from it. New releases show up there after you pull to refresh.
@@ -40,9 +42,32 @@ You can also download the IPA from the [latest release](../../releases/latest) a
 
 The install is large. The Minecraft client is compiled into the app.
 
+## Play modes
+
+The launcher's **Play mode** picks where the game appears. Choose it before you press Play. A game keeps that mode until you close and reopen the app.
+
+- **Immersive VR** (the default). Vivecraft fills the space around you. Play with Sense controllers or with hand-tracking gestures, below. Press the Digital Crown to see your room. The Play button reads **Play in VR**.
+- **Windowed**. Minecraft runs flat in the launcher window, as on a desktop. Play with a gamepad, or look and pinch at the window to click. The Play button reads **Play in a window**. Resolution applies to VR only.
+
+You can close the launcher window during immersive play. The game keeps running in the space around you, and its sound keeps playing. The app ends when you quit the game or leave the space. If the sound ever stops after you close the window, open the app again from the Home View.
+
+### Windowed with a gamepad
+
+Pair the gamepad in visionOS Settings → Bluetooth. Button names below are DualSense. An Xbox controller maps the same way (A, Y, B, Menu).
+
+| Action | DualSense |
+| --- | --- |
+| Move · Look | Left stick · Right stick |
+| Jump · Inventory | Cross · Triangle |
+| Attack / select · Use | R2 · L2 |
+| Previous · next hotbar slot | L1 · R1 |
+| Pause | Circle or Options |
+
+Sense controllers and hand-tracking gestures drive Immersive VR. They do not drive the windowed game.
+
 ## Controls
 
-Use VR controllers when you have them. A PlayStation VR2 Sense controller, or any controller Vivecraft treats as an Oculus Touch controller, drives Vivecraft's own Touch bindings. Hand tracking is there when a hand has no controller paired. A paired Sense controller takes that hand over.
+These are the Immersive VR controls. Use VR controllers when you have them. A PlayStation VR2 Sense controller, or any controller Vivecraft treats as an Oculus Touch controller, drives Vivecraft's own Touch bindings. Hand tracking is there when a hand has no controller paired. A paired Sense controller takes that hand over.
 
 ### Touch controllers
 
@@ -54,7 +79,7 @@ Use VR controllers when you have them. A PlayStation VR2 Sense controller, or an
 | Left squeeze | Previous hotbar slot | Shift |
 | Both squeezes and both triggers | Interact / climb | |
 | Left stick | Walk | |
-| Right stick | Snap turn, 45° | Scroll |
+| Right stick | Turn (45° snap, or smooth: see Turning) | Scroll |
 | Right A | Jump | Right click |
 | Right B, hold | Radial menu | |
 | Left X, hold then release | Teleport: aim while held, go on release | |
@@ -74,7 +99,7 @@ Pinch your thumb to one fingertip. One finger owns the thumb at a time. The firs
 | Thumb to **index**, pinch | Use / place | Attack, and click a menu button |
 | Thumb to **middle**, tap (under 0.30 s, hand stays put) | Previous hotbar slot | Next hotbar slot |
 | Thumb to **middle**, hold still (0.30 s or more) | Climb, and Shift in a menu | Climb |
-| Thumb to **middle**, pinch and drag (more than 2.5 cm in the first 0.30 s) | Walk. Push forward to move forward, sideways to strafe | Snap turn left or right. In a menu, push up or down to scroll |
+| Thumb to **middle**, pinch and drag (more than 2.5 cm in the first 0.30 s) | Walk. Push forward to move forward, sideways to strafe | Turn left or right. In a menu, push up or down to scroll |
 | Thumb to **ring**, pinch | Teleport. Hold to aim with the left hand, release to go | Jump, and right-click in a menu |
 | Thumb to **little**, tap | Inventory, when you release | Radial menu, held for as long as you pinch |
 | Thumb to **little**, hold 0.8 s or more | Pause | Radial menu, still held |
@@ -93,6 +118,10 @@ The window before the game has three choices.
 
 An account that owns Java Edition is labeled Microsoft. An account that does not own it is labeled Offline and plays under that name. The Offline card plays on this device and does not join servers. Servers need a Microsoft account that owns the game.
 
+**Set up Java profile.** Some accounts own Java Edition but have no Java profile (player name) yet. The launcher asks Minecraft's services which case it is, and labels such an account **Set up Java profile**. Set the profile up at [minecraft.net/msaprofile](https://www.minecraft.net/msaprofile), then press **Check again** in the account panel. Until then the account plays offline and does not unlock the device. An account with no Java Edition at all gets a note saying so, with **Check again** in case that changes.
+
+**Play mode.** Immersive VR or Windowed. See [Play modes](#play-modes).
+
 **Play.**
 
 - **Continue** loads the newest world on the selected account. It is off when that account has no worlds.
@@ -109,7 +138,11 @@ An account that owns Java Edition is labeled Microsoft. An account that does not
 
 Sharp is the default. Max can judder.
 
-The window asks for the microphone before Launch. Voice chat needs that permission. On a controller, push-to-talk is left stick click. **Details** opens the boot log. **Launch** starts the game.
+**Turning.** How the turn stick (or the right hand's middle-pinch drag) turns you in VR. **Snap 45** turns 45° on each flick, and is the default. **Smooth** turns continuously while you hold it. The choice is written to the selected account's Vivecraft settings each time you press Play.
+
+The window asks for the microphone before Launch. Voice chat needs that permission. On a controller, push-to-talk is left stick click. **Details** opens the boot log. **Play in VR** or **Play in a window** starts the game. While it boots, the launcher shows each stage. If the boot fails, it shows a short code with a hint, and **Export diagnostics** saves the boot log so you can attach it to an issue.
+
+The HUD starts head-locked, 2 m in front of you and slightly smaller. That move happens once per account, and only if you never changed the HUD placement yourself.
 
 ## Mods
 
@@ -157,6 +190,7 @@ Every other component, with its version and license, is in [THIRD-PARTY.md](THIR
 
 - **[Klepton](https://github.com/shinyquagsire23/Klepton)** by shinyquagsire23. The runtime. This port tracks the fork [rebelancap/Klepton](https://github.com/rebelancap/Klepton). MIT.
 - **[Vivecraft](https://github.com/Vivecraft/VivecraftMod)** (and Minecrift). LGPLv3. https://modrinth.com/mod/vivecraft
+- **[avp-craft](https://github.com/zschwendi/avp-craft)** by zschwendi. Windowed play mode with gamepad input, the audio keep-alive that lets the game keep playing with the launcher window closed, the Java profile check, the Turning and HUD comfort settings, the launcher's boot progress and diagnostics, and build fixes.
 - **[QuestCraft](https://github.com/QuestCraftPlusPlus/QuestCraft)** and its OpenXR fork of Vivecraft, [QuestCraftPlusPlus/VivecraftMod](https://github.com/QuestCraftPlusPlus/VivecraftMod). The Touch bindings follow that fork.
 - **[Fabric](https://github.com/FabricMC/fabric)** and [Fabric Loader](https://github.com/FabricMC/fabric-loader). Apache-2.0.
 - **[Sodium](https://github.com/CaffeineMC/sodium)**. Polyform Shield 1.0.0.

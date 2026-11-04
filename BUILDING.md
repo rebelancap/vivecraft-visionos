@@ -15,7 +15,7 @@ A simulator build does not need `KLEPTON_TEAM`. `run.sh` sets `CODE_SIGNING_ALLO
 
 The public bundle id is `com.rebelancap.vivecraft-visionos`. It is the `bundle` field on the vivecraft row in `visionos/targets.py`. `bundle_for()` returns that string and does not prefix a login name. `KLEPTON_BUNDLE_ID` still overrides it. SideStore matches this id.
 
-`CFBundleShortVersionString` / `MARKETING_VERSION` defaults to **1.0.1** in `visionos/gen_xcodeproj.py` (`KLEPTON_MARKETING_VERSION` overrides it). `CFBundleVersion` defaults to `1` (`KLEPTON_BUILD_VERSION`). The short version, the GitHub release, and the OTA version are the same string, 1.0.1. The display name is `Vivecraft`. The Xcode product name stays `KleptonVivecraft`.
+`CFBundleShortVersionString` / `MARKETING_VERSION` defaults to **1.0.2** in `visionos/gen_xcodeproj.py` (`KLEPTON_MARKETING_VERSION` overrides it). `CFBundleVersion` defaults to `1` (`KLEPTON_BUILD_VERSION`). The short version, the GitHub release, and the OTA version are the same string, 1.0.2. The display name is `Vivecraft`. The Xcode product name stays `KleptonVivecraft`.
 
 ## Machine
 
@@ -106,7 +106,7 @@ f317964c49f8e1dace17dcc4ea4a8d4f9d29c7e5a2888c61b73259f4355deac4
 
 The same hash came out of GraalVM 25.0.4 (above) and OpenJDK 25.0.4.1 as `JAVA_HOME`.
 
-The `libminecraft.dylib` in release 1.0.1 was baked from patches 0001–0005, so it does not have the lower HUD. Patch 0006 needs a new Knot bake and native image (steps 6 and 7). See UPSTREAM.md.
+The `libminecraft.dylib` in releases 1.0.1 and 1.0.2 was baked from patches 0001–0005, so it does not have the lower HUD. Patch 0006 needs a new Knot bake and native image (steps 6 and 7). See UPSTREAM.md.
 
 `work/native-image/scripts/m3a/mods-26.2.json` sets `local` to `work/vivecraft-openxr-26.2/VivecraftMod/build/canonical/vivecraft-26.2-1.3.15-fabric.jar` (relative to the repo root) and `sha256` to the hash above. The jar is a build output. Do not commit it.
 

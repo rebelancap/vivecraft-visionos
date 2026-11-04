@@ -27,7 +27,7 @@ The committed copies below had their compile-path prefix rewritten in place (`vi
 - The jar the shipped image was baked from (patches 0001–0005, raw Loom output): sha256 `e241a4c2888bd7158e5177916b6f524b862801c192a08f7d967fc3f21ee5be7d`, canonical form `5324e012fe0072cb7471e36349d40395d2ab63a7e8f9609f0b35a67a53a0d62b`. A rebuild of the raw jar does not reproduce `e241a4c2…`, because Loom's nested-jar ZIP metadata changes per build.
 - License: LGPLv3 (`LICENSES/LGPL-3.0.txt`)
 
-**The shipped image does not have patch 0006.** `out/t8-26.2`, the `libminecraft.dylib` in release 1.0.1 (hashes below), was baked from patches 0001–0005. Its Vivecraft never reads `hudPitchOffset` for the head HUD and keeps the old defaults. Patch 0006 takes effect only after a new Knot bake and native image (BUILDING.md steps 3, 6 and 7).
+**The shipped image does not have patch 0006.** `out/t8-26.2`, the `libminecraft.dylib` in releases 1.0.1 and 1.0.2 (hashes below), was baked from patches 0001–0005. Its Vivecraft never reads `hudPitchOffset` for the head HUD and keeps the old defaults. Patch 0006 takes effect only after a new Knot bake and native image (BUILDING.md steps 3, 6 and 7).
 
 ## LTW
 
@@ -57,7 +57,7 @@ SVC codec pins are in `work/natives/svc/PROVENANCE.md`.
 
 ## Native image reused for the proof build
 
-These dylibs were built in the private tree and reused as inputs. They are not in git. They are the release 1.0.1 image, baked from Vivecraft patches 0001–0005.
+These dylibs were built in the private tree and reused as inputs. They are not in git. They are the release 1.0.1 and 1.0.2 image, baked from Vivecraft patches 0001–0005.
 
 | File | sha256 |
 | --- | --- |

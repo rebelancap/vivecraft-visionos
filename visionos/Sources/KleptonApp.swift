@@ -317,10 +317,11 @@ struct KleptonApp: App {
 
     var body: some Scene {
         WindowGroup { BootView() }
-            // 960, not 800: with Immersive VR selected the Play panel carries the
-            // Play mode, Resolution and Turning rows, and at 800 they pushed the
-            // Play button out of the window.
-            .defaultSize(width: 1280, height: 960)
+            // 1280x800, and the window is not grown to fit the launcher: the Play
+            // panel's rows scroll inside the panel (MCLauncherView), so the Play
+            // button strip stays visible at this size and the player can still
+            // resize the window. No scale transform: a short window clips/scrolls.
+            .defaultSize(width: 1280, height: 800)
             // On the app's phase, not this window's: closing the boot window
             // while the immersive space is up is not backgrounding, and must
             // not be treated as it. The log line above every decision is what

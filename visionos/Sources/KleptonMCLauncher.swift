@@ -1084,7 +1084,20 @@ struct MCLauncherView: View {
                 HStack(alignment: .top, spacing: 20) {
                     MCPanel(title: "Account") { accountSection }
                         .frame(maxWidth: .infinity)
-                    MCPanel(title: "Play") { playSection }
+                    // The Play panel's rows (Play, Play mode, Resolution, Turning,
+                    // Microphone) scroll inside the panel when the window is not
+                    // tall enough, instead of pushing launchRow (the lock sentence,
+                    // Play button and account footer) out of the window or forcing
+                    // the window taller. The strip below stays pinned.
+                    MCPanel(title: "Play") {
+                        ScrollView(.vertical) {
+                            playSection
+                                .padding(.trailing, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .scrollIndicators(.visible)
+                        .accessibilityIdentifier("launcher.play.scroll")
+                    }
                         .frame(width: 470)
                 }
                 .frame(maxHeight: .infinity)

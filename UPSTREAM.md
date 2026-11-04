@@ -21,10 +21,13 @@ The committed copies below had their compile-path prefix rewritten in place (`vi
 ## Vivecraft
 
 - Upstream: https://github.com/Vivecraft/VivecraftMod branch `openxr` at `13eafae1`
-- Patches: `work/vivecraft-openxr-26.2/patches/` 0001–0005
-- Result: `8297f0ecc84bb25aecf714c23dae661cf6cdf626`
-- Jar: `vivecraft-26.2-1.3.15-fabric.jar`, sha256 `e241a4c2888bd7158e5177916b6f524b862801c192a08f7d967fc3f21ee5be7d`
+- Patches: `work/vivecraft-openxr-26.2/patches/` 0001–0006. 0001–0005 are the port. 0006 (from [zschwendi/avp-craft](https://github.com/zschwendi/avp-craft)) lowers the head-locked in-world HUD by 15 degrees.
+- Git tree after 0001–0006: `bc542a09e32f6f9b74f54ddb4a37373d2b32c902`. After 0001–0005: `68f88122e716fdbb7f6613490503739c9baf07c2`. `8297f0ecc84bb25aecf714c23dae661cf6cdf626`, which earlier versions of this file called the tree, is the private commit id of patch 0005.
+- Jar (patches 0001–0006, canonicalized with `work/vivecraft-openxr-26.2/canonicalize-vivecraft-jar.py`): `vivecraft-26.2-1.3.15-fabric.jar`, 19,032,717 bytes, sha256 `f317964c49f8e1dace17dcc4ea4a8d4f9d29c7e5a2888c61b73259f4355deac4`. Reproduced in this tree on 2026-11-04 (GraalVM 25.0.4+7.1, Gradle 9.3.0, Loom 1.15.5, Fabric API 0.161.0+26.2). avp-craft got the same hash with OpenJDK 25.0.4.1.
+- The jar the shipped image was baked from (patches 0001–0005, raw Loom output): sha256 `e241a4c2888bd7158e5177916b6f524b862801c192a08f7d967fc3f21ee5be7d`, canonical form `5324e012fe0072cb7471e36349d40395d2ab63a7e8f9609f0b35a67a53a0d62b`. A rebuild of the raw jar does not reproduce `e241a4c2…`, because Loom's nested-jar ZIP metadata changes per build.
 - License: LGPLv3 (`LICENSES/LGPL-3.0.txt`)
+
+**The shipped image does not have patch 0006.** `out/t8-26.2`, the `libminecraft.dylib` in release 1.0.1 (hashes below), was baked from patches 0001–0005. Its Vivecraft never reads `hudPitchOffset` for the head HUD and keeps the old defaults. Patch 0006 takes effect only after a new Knot bake and native image (BUILDING.md steps 3, 6 and 7).
 
 ## LTW
 
@@ -54,7 +57,7 @@ SVC codec pins are in `work/natives/svc/PROVENANCE.md`.
 
 ## Native image reused for the proof build
 
-These dylibs were built in the private tree and reused as inputs. They are not in git.
+These dylibs were built in the private tree and reused as inputs. They are not in git. They are the release 1.0.1 image, baked from Vivecraft patches 0001–0005.
 
 | File | sha256 |
 | --- | --- |

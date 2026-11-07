@@ -18,6 +18,8 @@
 # Microsoft refresh token is staged (stage_native.sh, KleptonMSA.swift), kl_app.c
 # (native_msa_args) replaces them in memory with the signed-in account's and adds
 # --userType msa --xuid; KL_MSA=0 keeps these. Never put a real token here.
+# -Dspike.shots= (empty): the baked SpikeFabric wrapper (scripts/spikef-src-*/SpikeFabric.java) otherwise saves a
+# screenshot 25 s after launch (its default "25"); an empty list schedules no shot. Its 1 s [SPIKE] fps line stays.
 vivecraft
 -Xmx@XMX@
 -Xmn1g
@@ -39,6 +41,7 @@ vivecraft
 -Dklglfw.libpath=@FW@/libklglfw.dylib
 -Dklsdl.libpath=@FW@/libklsdl.dylib
 -Djava.library.path=@FW@
+-Dspike.shots=
 --accessToken
 0
 --username

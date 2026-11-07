@@ -4031,6 +4031,11 @@ written down is a value found twice.
   as already being in tracking space. Default treats them as accessory-local
   and rotates them by the grip orientation, which is what ALVR does; Apple
   documents neither, and the two differ only in direction.
+- `KL_GAMEPAD_DEBUG=1` — windowed (non-VR) gamepad, `visionos/Sources/MCWindowedInput.swift`:
+  logs each PS VR2 Sense controller's element names on connect and one
+  `[gamepad] press L:<element>` / `R:<element>` line per press edge. The
+  per-connect line (`[gamepad] connected: vendor=… category=… extendedGamepad=…
+  profile=extendedGamepad|spatial-left|spatial-right|ignored(…)`) is always on.
 - `KL_HAND_MIRROR=1` — left hand back on ALVR's *mirrored* wrist→grip
   constant. The default left constant is `R · Rx(180)`, forced by four
   playtests.

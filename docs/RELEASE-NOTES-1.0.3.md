@@ -31,4 +31,4 @@ VR controllers (PS VR2 Sense) are recommended; a hand-tracking gesture map is in
 ## Credits
 Klepton, Vivecraft, QuestCraft (OpenXR fork and bindings), Fabric, Sodium, Lithium and the other bundled mods, ANGLE, LWJGL, shaderc and SPIRV-Cross, GraalVM. Licenses ship inside the app; see THIRD-PARTY.md.
 
-sha256 `<!-- TODO(orchestrator): IPA sha256 -->`
+`vivecraft-visionos-1.0.3.ipa`: 639,148,375 bytes, sha256 `ece6db2e0e3cf0c04e542730a3af2279e2ad4bae463967c06c9f081cf40c5f9b`

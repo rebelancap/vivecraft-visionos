@@ -1805,27 +1805,87 @@ static int klfb_vrr_post_wanted(void) {
     return on;
 }
 
+// The one global "<storage> [precision] <type> NAME;" in buf, or 0 when there
+// is none or more than one. Whole-token matches only; a local declaration has
+// no storage qualifier and a block member has none either, so neither counts.
+static int klfb_global_decl_name(const char *buf, const char *storage,
+                                 const char *type, char *out, size_t cap) {
+    size_t tl = strlen(type), sl = strlen(storage);
+    int found = 0;
+    for (const char *p = buf; (p = strstr(p, type)); p += tl) {
+        if (p > buf && (isalnum((unsigned char)p[-1]) || p[-1] == '_')) continue;
+        const char *q = p + tl;
+        if (!isspace((unsigned char)*q)) continue;
+        // back over whitespace, an optional precision word, whitespace
+        const char *b = p;
+        while (b > buf && isspace((unsigned char)b[-1])) b--;
+        static const char *const prec[] = {"highp", "mediump", "lowp"};
+        for (unsigned i = 0; i < 3; i++) {
+            size_t pl = strlen(prec[i]);
+            if ((size_t)(b - buf) >= pl && !strncmp(b - pl, prec[i], pl) &&
+                (b - pl == buf || !(isalnum((unsigned char)b[-pl - 1]) || b[-pl - 1] == '_'))) {
+                b -= pl;
+                while (b > buf && isspace((unsigned char)b[-1])) b--;
+                break;
+            }
+        }
+        if ((size_t)(b - buf) < sl || strncmp(b - sl, storage, sl)) continue;
+        const char *st = b - sl;
+        if (st > buf && (isalnum((unsigned char)st[-1]) || st[-1] == '_')) continue;
+        // forward: the identifier and its ';'
+        while (isspace((unsigned char)*q)) q++;
+        const char *id = q;
+        while (isalnum((unsigned char)*q) || *q == '_') q++;
+        size_t il = (size_t)(q - id);
+        while (isspace((unsigned char)*q)) q++;
+        if (!il || *q != ';' || il + 1 > cap) continue;
+        if (found++) return 0;
+        memcpy(out, id, il);
+        out[il] = 0;
+    }
+    return found == 1;
+}
+
 static int klfb_rewrite_vr_post(char *buf, size_t cap, uint32_t shader) {
     if (!klfb_vrr_post_wanted()) return 0;
     if (strstr(buf, "gl_Position")) return 0;          // fragment stage only
     // Vivecraft's post shader and nothing else: circle_radius is its
     // FOV-reduction uniform (no other shader in the pack declares it), and the
-    // varying and sampler are the two names the rewrite works on. glsl-
-    // optimizer (ltw) keeps uniform and varying names, which is what the
-    // guest's glGetUniformLocation relies on as well.
-    if (!strstr(buf, "circle_radius") || !strstr(buf, "texCoordinates") ||
-        !strstr(buf, "Sampler0"))
+    // varying and sampler are the two names the rewrite works on.
+    if (!strstr(buf, "circle_radius")) return 0;
+    // Minecraft <= 26.2 hands the GLSL over as written, so glsl-optimizer
+    // (ltw) sees Vivecraft's own names: texCoordinates and Sampler0. 26.3
+    // compiles every shader GLSL -> SPIR-V -> GLSL (shaderc + SPIRV-Cross),
+    // which renames the sampler to _uniform_00_01 and the varying to
+    // _interface_variable_00 (block MEMBER names such as circle_radius
+    // survive). Missing that left the rule silent on 26.3 (OTA 1.0.2.1): the
+    // foveated 3D Render target was read at screen UVs, a second warp —
+    // fishbowl picture squeezed into the physical rectangle (3752x2551 of a
+    // 4864x3902 eye), black above and to the right of it, eyes not fusing.
+    // So: Vivecraft's names when present, else the shader's one global
+    // `uniform sampler2D` and its one `in vec2`.
+    char samp[64], uv[64];
+    if (strstr(buf, "texCoordinates") && strstr(buf, "Sampler0")) {
+        strcpy(samp, "Sampler0");
+        strcpy(uv, "texCoordinates");
+    } else if (!klfb_global_decl_name(buf, "uniform", "sampler2D", samp, sizeof samp) ||
+               !klfb_global_decl_name(buf, "in", "vec2", uv, sizeof uv)) {
+        fprintf(stderr, "  [glfb] VR post shader %u: circle_radius found but not ONE "
+                        "sampler2D and ONE vec2 input — left alone, the foveated "
+                        "post copy will be WRONG (magnified centre)\n", shader);
         return 0;
+    }
     char *m = strstr(buf, "void main");
     if (!m) return 0;
     char *br = strchr(m, '{');
     if (!br) return 0;
     // highp: a 4608-wide position does not survive mediump (exact only up to
     // 2048), and gl_FragCoord is highp in ESSL 3.00 anyway.
-    static const char ins[] =
-        "\n  highp vec2 texCoordinates = gl_FragCoord.xy / "
-        "vec2(textureSize(Sampler0, 0));";
-    size_t add = sizeof ins - 1;
+    char ins[256];
+    snprintf(ins, sizeof ins,
+             "\n  highp vec2 %s = gl_FragCoord.xy / vec2(textureSize(%s, 0));",
+             uv, samp);
+    size_t add = strlen(ins);
     size_t len = strlen(buf);
     if (len + add + 1 > cap) {
         fprintf(stderr, "  [glfb] VR post shader %u: no room for the "
@@ -1840,12 +1900,12 @@ static int klfb_rewrite_vr_post(char *buf, size_t cap, uint32_t shader) {
     for (unsigned i = 0; i < g_vrpost_nsh; i++)
         if (g_vrpost_sh[i] == shader) known = 1;
     if (!known && g_vrpost_nsh < KLFB_VRPOST_MAX) g_vrpost_sh[g_vrpost_nsh++] = shader;
-    fprintf(stderr, "  [glfb] VR post shader %u rewritten: texCoordinates is "
-                    "gl_FragCoord.xy / textureSize(Sampler0) — the foveated "
+    fprintf(stderr, "  [glfb] VR post shader %u rewritten: %s is "
+                    "gl_FragCoord.xy / textureSize(%s) — the foveated "
                     "3D Render target is read at the fragment's own PHYSICAL "
                     "position, so the copy into the identically-warped "
                     "swapchain is texel-for-texel (KL_VRR_POST=0 is the A/B)\n",
-            shader);
+            shader, uv, samp);
     return 1;
 }
 

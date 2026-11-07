@@ -58,7 +58,8 @@ GLSL_SRCS := $(shell awk '/LOCAL_MODULE := glsl_optimizer/{m=1} /LOCAL_MODULE :=
 # Android-only backtrace implementation (u_debug_stack.c carries the generic one).
 GLSL_SRCS := $(filter-out glsl_optimizer/src/util/u_debug_stack_android.cpp,$(GLSL_SRCS))
 LTW_SRCS  := $(shell awk '/LOCAL_MODULE := ltw/{m=1} m==1' $(MK) | grep -o '[A-Za-z_/]*\.c\b' )
-SHIM_SRCS := darwin/ltw_darwin.c darwin/ltw_darwin_gl.c darwin/ltw_darwin_gl33.c darwin/ltw_darwin_buf.c
+SHIM_SRCS := darwin/ltw_darwin.c darwin/ltw_darwin_gl.c darwin/ltw_darwin_gl33.c darwin/ltw_darwin_buf.c \
+             darwin/ltw_darwin_shader.c
 
 GLSL_OBJS := $(patsubst %,$(OBJ)/glsl/%.o,$(GLSL_SRCS))
 LTW_OBJS  := $(patsubst %,$(OBJ)/ltw/%.o,$(LTW_SRCS))
@@ -91,6 +92,10 @@ $(OBJ)/glsl/glsl_optimizer/src/code/ir_print_glsl_visitor.cpp.o: CXXFLAGS += -in
 # M3 stage A: texture buffers (clouds) -> darwin/ltw_darwin_gl.c owns glShaderSource (source rewrite first).
 $(OBJ)/ltw/shader_wrapper.c.o: CFLAGS += -include $(HERE)/darwin/ltw_darwin_rename_shader.h
 $(OBJ)/ltw/shader_wrapper.c.o: $(HERE)/darwin/ltw_darwin_rename_shader.h
+# Minecraft 26.3: the desktop-GLSL front end's per-stage uniform-block limit 4 -> 12 (ES 3.0 minimum); SPIRV-Cross
+# output of core/terrain has 5 vertex blocks.
+$(OBJ)/glsl/glsl_optimizer/src/code/GlslConvert.cpp.o: CXXFLAGS += -include $(HERE)/darwin/ltw_darwin_glslconv_limits.h
+$(OBJ)/glsl/glsl_optimizer/src/code/GlslConvert.cpp.o: $(HERE)/darwin/ltw_darwin_glslconv_limits.h
 # The force-included overlays above are prerequisites of their objects, so an edit to one rebuilds that
 # object (before M3 stage A an incremental `make` silently kept the stale object).
 $(OBJ)/ltw/proc.c.o: $(HERE)/darwin/ltw_darwin_proc.h

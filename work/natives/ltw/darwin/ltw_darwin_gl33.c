@@ -18,6 +18,11 @@
  *      has GL_EXT_buffer_storage; 26.2's DirectStateAccess$Emulated would then take the persistent-mapping path.
  *      LTW_DARWIN_HIDE_EXTENSIONS="A B ..." replaces the list in any mode ("none" = hide nothing).
  *      GL 3.2 mode (Minecraft 1.21.x) hides nothing by default: unchanged behaviour.
+ *  7c. Minecraft 26.3 (renderpearl GlStateManager): per-draw-buffer blend / color-mask state (glEnablei, glDisablei,
+ *      glColorMaski, glBlendFunc*i, glBlendEquation*i) routed to GL_{EXT,OES}_draw_buffers_indexed (ANGLE's core
+ *      names are ES 3.2-only and failed on the ES 3.0 context, so blending was never switched: the world rendered
+ *      black under a working HUD); glEnable of the ES-always-on caps SEAMLESS cube maps / PROGRAM_POINT_SIZE is a
+ *      no-op instead of a queued GL_INVALID_ENUM.
  *  The GLSL version string and GL_CONTEXT_FLAGS answer live in ltw_darwin_gl.c section 2.
  */
 #include <pthread.h>
@@ -102,6 +107,14 @@ typedef struct {
     void (*vaBinding)(GLuint, GLuint);
     void (*bindingDivisor)(GLuint, GLuint);
     void (*bufferStorage)(GLenum, GLsizeiptr, const void *, GLbitfield);
+    void (*enablei)(GLenum, GLuint);                                                            /* draw_buffers_indexed */
+    void (*disablei)(GLenum, GLuint);
+    GLboolean (*isEnabledi)(GLenum, GLuint);
+    void (*colorMaski)(GLuint, GLboolean, GLboolean, GLboolean, GLboolean);
+    void (*blendFunci)(GLuint, GLenum, GLenum);
+    void (*blendFuncSeparatei)(GLuint, GLenum, GLenum, GLenum, GLenum);
+    void (*blendEquationi)(GLuint, GLenum);
+    void (*blendEquationSeparatei)(GLuint, GLenum, GLenum);
 } d33_routes_t;
 static _Thread_local d33_routes_t R;
 
@@ -136,6 +149,19 @@ static const d33_routes_t *routes(void) {
         R.bindingDivisor = (void *)host_eglGetProcAddress("glVertexBindingDivisor");
     }
     if (c->buffer_storage) R.bufferStorage = (void *)host_eglGetProcAddress("glBufferStorageEXT");
+    /* Minecraft 26.3's GlStateManager sets blending per draw buffer (glEnablei / glDisablei (GL_BLEND, i),
+     * glColorMaski). ANGLE's core names are ES 3.2 entry points and fail on its ES 3.0 context (GL_INVALID_OPERATION,
+     * "Command requires OpenGL ES 3.2": blending never changed). The *EXT / *OES names of
+     * GL_{EXT,OES}_draw_buffers_indexed are the same functions (ANGLE Metal has both). */
+    const char *dbi = d33_has_ext(x, "GL_EXT_draw_buffers_indexed") ? "EXT" : d33_has_ext(x, "GL_OES_draw_buffers_indexed") ? "OES" : NULL;
+    if (dbi) {
+        char fn[64];
+#define DBI(field, name) snprintf(fn, sizeof fn, "%s%s", name, dbi); R.field = (void *)host_eglGetProcAddress(fn);
+        DBI(enablei, "glEnablei") DBI(disablei, "glDisablei") DBI(isEnabledi, "glIsEnabledi") DBI(colorMaski, "glColorMaski")
+        DBI(blendFunci, "glBlendFunci") DBI(blendFuncSeparatei, "glBlendFuncSeparatei")
+        DBI(blendEquationi, "glBlendEquationi") DBI(blendEquationSeparatei, "glBlendEquationSeparatei")
+#undef DBI
+    }
     return &R;
 }
 #undef HOSTFN
@@ -251,6 +277,55 @@ static int d33_on(void);
 void glBufferStorage(GLenum target, GLsizeiptr size, const void *data, GLbitfield flags) {
     if (d33_on()) d33_BufferStorage(target, size, data, flags);
     else ltw_upstream_glBufferStorage(target, size, data, flags);
+}
+/* Desktop-only caps Minecraft 26.3's GlDevice enables once: GL_TEXTURE_CUBE_MAP_SEAMLESS and GL_PROGRAM_POINT_SIZE
+ * are always on in ES 3.0, so enabling them is an exact no-op (ANGLE queued GL_INVALID_ENUM for each, which the next
+ * unrelated glGetError would have reported). Disabling them cannot be honoured -> error, as before. */
+#define CAP_SEAMLESS_ 0x884F
+#define CAP_POINT_SIZE_ 0x8642
+void glEnable(GLenum cap);   /* upstream main.c (drops GL_DEBUG_OUTPUT) */
+static void d33_Enable(GLenum cap) {
+    if (cap == CAP_SEAMLESS_ || cap == CAP_POINT_SIZE_) return;
+    glEnable(cap);
+}
+
+/* Indexed blend / color-mask state (see routes()). Without the extension, index 0 maps to the global state (which
+ * covers draw buffer 0, what single-target pipelines use) and any other index is an error. */
+static void d33_Enablei(GLenum cap, GLuint i) {
+    NEED_CTX();
+    if (routes()->enablei) R.enablei(cap, i); else if (i == 0) es3_functions.glEnable(cap); else d33_fail("glEnablei");
+}
+static void d33_Disablei(GLenum cap, GLuint i) {
+    NEED_CTX();
+    if (routes()->disablei) R.disablei(cap, i); else if (i == 0) es3_functions.glDisable(cap); else d33_fail("glDisablei");
+}
+static GLboolean d33_IsEnabledi(GLenum cap, GLuint i) {
+    NEED_CTX(GL_FALSE);
+    if (routes()->isEnabledi) return R.isEnabledi(cap, i);
+    if (i == 0) return es3_functions.glIsEnabled(cap);
+    d33_fail("glIsEnabledi"); return GL_FALSE;
+}
+static void d33_ColorMaski(GLuint i, GLboolean r, GLboolean g, GLboolean b, GLboolean a) {
+    NEED_CTX();
+    if (routes()->colorMaski) R.colorMaski(i, r, g, b, a); else if (i == 0) es3_functions.glColorMask(r, g, b, a); else d33_fail("glColorMaski");
+}
+static void d33_BlendFunci(GLuint i, GLenum s, GLenum d) {
+    NEED_CTX();
+    if (routes()->blendFunci) R.blendFunci(i, s, d); else if (i == 0) es3_functions.glBlendFunc(s, d); else d33_fail("glBlendFunci");
+}
+static void d33_BlendFuncSeparatei(GLuint i, GLenum sr, GLenum dr, GLenum sa, GLenum da) {
+    NEED_CTX();
+    if (routes()->blendFuncSeparatei) R.blendFuncSeparatei(i, sr, dr, sa, da);
+    else if (i == 0) es3_functions.glBlendFuncSeparate(sr, dr, sa, da); else d33_fail("glBlendFuncSeparatei");
+}
+static void d33_BlendEquationi(GLuint i, GLenum m) {
+    NEED_CTX();
+    if (routes()->blendEquationi) R.blendEquationi(i, m); else if (i == 0) es3_functions.glBlendEquation(m); else d33_fail("glBlendEquationi");
+}
+static void d33_BlendEquationSeparatei(GLuint i, GLenum mr, GLenum ma) {
+    NEED_CTX();
+    if (routes()->blendEquationSeparatei) R.blendEquationSeparatei(i, mr, ma);
+    else if (i == 0) es3_functions.glBlendEquationSeparate(mr, ma); else d33_fail("glBlendEquationSeparatei");
 }
 /* ARB_debug_output (ANGLE has KHR_debug only, so the ARB cap is never set; the KHR names go to ANGLE/ltw) */
 static void d33_DebugMessageCallbackARB(void *cb, const void *user) { NEED_CTX(); d33_fail("glDebugMessageCallbackARB"); }
@@ -372,6 +447,8 @@ HIDDEN void *ltw_d33_lookup(const char *n) {
     R33(DrawArraysIndirect) R33(DrawElementsIndirect) R33(MultiDrawArraysIndirect) R33(MultiDrawElementsIndirect)
     R33(BindVertexBuffer) R33(VertexAttribFormat) R33(VertexAttribIFormat) R33(VertexAttribBinding) R33(VertexBindingDivisor)
     R33(BufferStorage) R33(DebugMessageCallbackARB) R33(DebugMessageControlARB)
+    R33(Enable) R33(Enablei) R33(Disablei) R33(IsEnabledi) R33(ColorMaski) R33(BlendFunci) R33(BlendFuncSeparatei)
+    R33(BlendEquationi) R33(BlendEquationSeparatei)
     R33(CreateBuffers) R33(CreateFramebuffers) R33(CreateTextures) R33(CreateVertexArrays)
     R33(NamedBufferData) R33(NamedBufferStorage) R33(NamedBufferSubData) R33(NamedFramebufferTexture)
     R33(NamedFramebufferDrawBuffers) R33(NamedFramebufferDrawBuffer) R33(BlitNamedFramebuffer) R33(CopyNamedBufferSubData)

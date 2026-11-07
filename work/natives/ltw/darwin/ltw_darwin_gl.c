@@ -65,6 +65,9 @@
  *  8. Buffer uploads (darwin/ltw_darwin_buf.c): big glBufferSubData staged through a ring + glCopyBufferSubData
  *     (LTW_DARWIN_SUBDATA), [ltw-buf] counters (LTW_DARWIN_BUFSTATS), host frame log (LTW_DARWIN_FRAMELOG).
  *
+ *  9. LTW_DARWIN_GLDEBUG=1 (diagnostic): ANGLE's KHR_debug output (validation errors) printed to stdout; see
+ *     gldebug_install. The shader-conversion wrapper is darwin/ltw_darwin_shader.c.
+ *
  *  3. Lookup. eglGetProcAddress / glXGetProcAddress (and OSMesaGetProcAddress in ltw_darwin.c)
  *     answer the names above with these functions, then defer to upstream's table
  *     (ltw_upstream_eglGetProcAddress). Upstream never returned glDrawElementsBaseVertex from its
@@ -138,7 +141,32 @@ __attribute__((visibility("hidden"))) bool ltw_darwin_report_version(int *maj, i
 static inline bool rep_33(void) { return rep_on() && (rep_major > 3 || (rep_major == 3 && rep_minor >= 3)); }
 static char rep_glsl[32];
 
+/* LTW_DARWIN_GLDEBUG=1 (diagnostic): ANGLE's KHR_debug messages (validation errors etc.) printed to stdout, the first
+ * 8 of each id. Installed on the first glGetString of each context; the game's own glDebugMessageCallback* calls are
+ * then ignored so they cannot replace it. */
+typedef void (*dbg_cb_t)(GLenum, GLenum, GLuint, GLenum, GLsizei, const GLchar *, const void *);
+static int gldebug_on(void) { static int on = -1; if (on < 0) { const char *e = getenv("LTW_DARWIN_GLDEBUG"); on = e && *e && strcmp(e, "0"); } return on; }
+static void gldebug_cb(GLenum src, GLenum type, GLuint id, GLenum sev, GLsizei len, const GLchar *msg, const void *u) {
+    static struct { char key[48]; int n; } seen[256]; static int nseen;   /* first 8 of each message text */
+    int k = 0; for (; k < nseen; k++) if (!strncmp(seen[k].key, msg, sizeof seen[k].key - 1)) break;
+    if (k == nseen) { if (nseen < 256) { snprintf(seen[nseen].key, sizeof seen[nseen].key, "%s", msg); seen[nseen].n = 0; nseen++; } else k = 255; }
+    if (seen[k].n++ >= 8) return;
+    printf("LTW-Darwin GLDEBUG: src=0x%x type=0x%x id=%u sev=0x%x: %s\n", src, type, id, sev, msg);
+}
+static void gldebug_install(void) {
+    static _Thread_local void *done_ctx;
+    if (!gldebug_on() || !current_context || done_ctx == (void *)current_context) return;
+    done_ctx = (void *)current_context;
+    void (*cb)(dbg_cb_t, const void *) = (void *)host_eglGetProcAddress("glDebugMessageCallbackKHR");
+    if (!cb) { printf("LTW-Darwin GLDEBUG: no glDebugMessageCallbackKHR\n"); return; }
+    cb(gldebug_cb, NULL);
+    es3_functions.glEnable(0x92E0 /* GL_DEBUG_OUTPUT */); es3_functions.glEnable(0x8242 /* GL_DEBUG_OUTPUT_SYNCHRONOUS */);
+    printf("LTW-Darwin GLDEBUG: ANGLE debug output installed\n");
+}
+static void gldebug_ignore(dbg_cb_t cb, const void *u) { (void)cb; (void)u; }
+
 const GLubyte *glGetString(GLenum name) {
+    gldebug_install();
     if (current_context && name == GL_VERSION && rep_on()) return (const GLubyte *)rep_string;
     /* GL 3.3+ report (Minecraft 26.x): GLSL "3.30 OpenLTW" (a 3.3 context's GLSL is 3.30). 3.2 mode keeps
      * upstream's "4.60 LTW" (1.21.x unchanged). */
@@ -706,6 +734,9 @@ eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *procname) {
             TBH(DrawElementsInstancedBaseVertex) TBH(MultiDrawElementsBaseVertex)
 #undef TBH
         }
+        if (gldebug_on() && (!strcmp(procname, "glDebugMessageCallback") || !strcmp(procname, "glDebugMessageCallbackARB") ||
+                             !strcmp(procname, "glDebugMessageCallbackKHR")))
+            return (eglMustCastToProperFunctionPointerType)gldebug_ignore;
         ROUTE(glGetString)
         ROUTE(glGetIntegerv)
         ROUTE(glDrawElementsBaseVertex)

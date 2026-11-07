@@ -42,6 +42,7 @@ for pair in $KLT_NATIVES; do
         libklsdl) echo "   (work/native-image/scripts/t2/build-klsdl.sh $PLAT)";;
         libvloader|libopenxr_loader) echo "   (work/natives/scripts/build-openxr-shim.sh)";;
         libopenal) echo "   (work/natives/scripts/build-openal.sh)";;
+        libshaderc|libspirv-cross) echo "   (work/natives/scripts/build-shaderc-spvc.sh $PLAT, MCV=26.3)";;
         liblwjgl*) echo "   (work/native-image/scripts/t2/build-fork-natives-xros.sh $PLAT)";;
       esac
       missing=1; continue

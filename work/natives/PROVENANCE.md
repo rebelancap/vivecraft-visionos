@@ -40,5 +40,26 @@ Pins live in `scripts/lwjgl-ver.sh` (LWJGL_VER, else MCV: 26.2 -> 3.4.1, 26.3 ->
 | FreeType **2.14.3** source (tag `VER-2-14-3` = commit **0a0221a1347e2f1e07c395263540026e9a0aa7c7**, the commit LWJGL 3.4.3's `libfreetype.dylib.git` names), tag archive to `downloads/freetype-VER-2-14-3.tar.gz` (sha256 stable across two fetches) | https://github.com/freetype/freetype/archive/refs/tags/VER-2-14-3.tar.gz | dc49de6b01a266eef4876a4dd34d9842c475d3e28ff2eff63bd2fb760ab56261 (also in `downloads/SHA256SUMS-freetype`) | 2026-11-06 | `build-freetype.sh` -> `build/lwjgl-3.4.3/{xros,xrsimulator}/libfreetype.dylib` |
 | Mojang 26.3 version json: read from `work/native-image/inst-26.3/files/versions/26.3/26.3.json` (fetch-inst.py) | Mojang version manifest | (json) | 2026-11-06 | LWJGL module list: 26.3 drops lwjgl-glfw and lwjgl-tinyfd, adds lwjgl-sdl (SDL3, libSDL3.dylib.git = 147a8ee32dbf9ac02f3794964490687b6bbda1bc), and names the plain `lwjgl` core instead of `:unsafe` |
 
+### shaderc + SPIRV-Cross for 26.3 (lwjgl-shaderc / lwjgl-spvc, 2026-11-06)
+26.3 compiles every shader GLSL -> SPIR-V (shaderc) and on GL back to GLSL (SPIRV-Cross). Neither LWJGL module has a JNI
+lib; the natives are `libshaderc.dylib` / `libspirv-cross.dylib`, which LWJGL-CI builds from upstream on GitHub Actions
+(`LWJGL-CI/{shaderc,SPIRV-Cross}` `.github/workflows/lwjgl.yml`) and names by upstream commit in the stock jar's
+`lib*.dylib.git`. Script: `scripts/build-shaderc-spvc.sh` (exact-commit shallow `git fetch --depth 1`, checks HEAD and
+that the stock 3.4.3 jars name the same commits) -> `build/lwjgl-3.4.3/{xros,xrsimulator}/`; `macosx` copies the stock
+Maven dylibs. Called by `t2/build-lwjgl341-natives-xros.sh` for LWJGL 3.4.3.
+
+| What | URL | commit | Fetched | Used by |
+|---|---|---|---|---|
+| shaderc (google/shaderc "Finalize Shaderc v2026.3"; = `lwjgl-shaderc-3.4.3-natives-macos-arm64.jar` libshaderc.dylib.git) -> `downloads/shaderc-<commit>/` | https://github.com/google/shaderc | 2c8cae778eec0283b44acbe7ed1a386865d78799 | 2026-11-06 | `libshaderc.dylib` (target shaderc_shared) |
+| glslang (shaderc DEPS pin) -> `downloads/shaderc-<commit>/third_party/glslang` | https://github.com/KhronosGroup/glslang | 168d452a4f460d24b588fed08477a81c44ee27a1 | 2026-11-06 | linked into libshaderc |
+| SPIRV-Tools (shaderc DEPS pin; optimizer included) -> `.../third_party/spirv-tools` | https://github.com/KhronosGroup/SPIRV-Tools | b707790a898e44038547df54580022fc1cf89c3d | 2026-11-06 | linked into libshaderc |
+| SPIRV-Headers (shaderc DEPS pin) -> `.../third_party/spirv-headers` | https://github.com/KhronosGroup/SPIRV-Headers | 29981f65241605e08b0ede4cfeb999fe3b723c6a | 2026-11-06 | headers |
+| SPIRV-Cross (KhronosGroup main, PR #2647 merge; = `lwjgl-spvc-3.4.3-natives-macos-arm64.jar` libspirv-cross.dylib.git) -> `downloads/SPIRV-Cross-<commit>/` | https://github.com/KhronosGroup/SPIRV-Cross | 6c09849fe88c48eaed08413aa022aaa136a3a057 | 2026-11-06 | `libspirv-cross.dylib` (target spirv-cross-c-shared) |
+| `lwjgl-shaderc`, `lwjgl-spvc` 3.4.3 jars + `natives-macos-arm64` (added to `fetch-lwjgl341.sh`) | `https://repo1.maven.org/maven2/org/lwjgl/<m>/3.4.3/` | see `downloads/lwjgl-3.4.3-maven/SHA256SUMS` | 2026-11-06 | pins check, export diff, host macOS dylibs |
+
+Not fetched: the rest of shaderc's DEPS (googletest, effcee, re2, abseil-cpp) — tests only, off. Re-fetch: delete the
+`downloads/shaderc-*` / `downloads/SPIRV-Cross-*` dirs and rerun the script (git objects, so no sha256; the HEAD check
+is the integrity check). Safe to delete together with `build/lwjgl-3.4.3/obj-*/shaderc-spvc`.
+
 OpenAL Soft 1.25.2 and libffi 3.5.2 / FreeType 2.14.1 tarballs in this tree were copied from the private tree's `downloads/` and
 sha256-checked against the rows above (no re-download).

@@ -256,8 +256,9 @@ def resolve(name):
     # work/natives/build/lwjgl-<v>/{sdk}/ (USAGE.md there), <v> per MCV as work/natives/scripts/lwjgl-ver.sh
     # (26.2 = 3.4.1, 26.3 = 3.4.3; LWJGL_VER overrides). 26.3 loads SDL3 instead of GLFW and no longer loads tinyfd:
     # libklsdl (the SDL3 stand-in, work/native-image/scripts/t2/build-klsdl.sh) takes libklglfw's place there (kl_app.c
-    # opens whichever is embedded). Still missing for 26.3: shaderc + spirv-cross (spvc), which 26.3 needs even on GL
-    # (GLSL -> SPIR-V -> GLSL); no visionOS build of either exists yet. Keyed on the MCV env var that run.sh,
+    # opens whichever is embedded). 26.3 also loads shaderc + SPIRV-Cross (lwjgl-shaderc / lwjgl-spvc: every shader goes
+    # GLSL -> SPIR-V -> GLSL, even on GL): libshaderc + libspirv-cross, found by file name through
+    # -Dorg.lwjgl.librarypath, built by work/natives/scripts/build-shaderc-spvc.sh. Keyed on the MCV env var that run.sh,
     # mknative.sh and stage_native.sh already share; unset / 1.x leaves the row exactly as written. libs/natives are
     # build-only, so `make targets` (the C table) is unaffected.
     _mcv = os.environ.get("MCV") or "26.2"
@@ -269,7 +270,7 @@ def resolve(name):
         _l341 = f"work/natives/build/lwjgl-{_lv}/{{sdk}}/"
         _swap = {n: _l341 + n + ".dylib" for n in
                  ("liblwjgl", "liblwjgl_opengl", "liblwjgl_stb", "libopenal", "libklglfw",
-                  "liblwjgl_tinyfd", "libfreetype", "libklsdl")}
+                  "liblwjgl_tinyfd", "libfreetype", "libklsdl", "libshaderc", "libspirv-cross")}
         _pairs = [p.split("=", 1) for p in t["natives"].split()]
         if _mcv != "26.2":   # SDL3 (26.3+): libklsdl instead of libklglfw (no GLFW reference left in the classpath)
             _pairs = [("libklsdl", src) if n == "libklglfw" else (n, src) for n, src in _pairs]
@@ -277,6 +278,8 @@ def resolve(name):
         _names = [n for n, _ in _pairs]
         _pairs = [(n, _swap.get(n, src)) for n, src in _pairs]
         _extra = [n for n in ("liblwjgl_tinyfd", "libfreetype") if n not in _names]
+        if _mcv != "26.2":   # 26.3+: shaderc (GLSL -> SPIR-V) + SPIRV-Cross (SPIR-V -> GLSL)
+            _extra += [n for n in ("libshaderc", "libspirv-cross") if n not in _names]
         _pairs += [(n, _swap[n]) for n in _extra]
         t["natives"] = " ".join(f"{n}={src}" for n, src in _pairs)
         t["libs"] = " ".join(t["libs"].split() + _extra)

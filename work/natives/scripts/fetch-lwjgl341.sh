@@ -12,7 +12,7 @@ M=$LWJGL_MV; mkdir -p $M
 R=https://repo1.maven.org/maven2/org/lwjgl
 get() { [ -f $M/$2 ] || curl -sfL -o $M/$2 $R/$1/$V/$2 || { rm -f $M/$2; echo "  (absent: $2)"; }; }
 get lwjgl lwjgl-$V.jar; get lwjgl lwjgl-$V-unsafe.jar; get lwjgl lwjgl-$V-natives-macos-arm64.jar
-for m in opengl stb openal openxr glfw jemalloc tinyfd freetype vulkan sdl; do
+for m in opengl stb openal openxr glfw jemalloc tinyfd freetype vulkan sdl shaderc spvc; do
   get lwjgl-$m lwjgl-$m-$V.jar; get lwjgl-$m lwjgl-$m-$V-natives-macos-arm64.jar
 done
 ( cd $M && shasum -a 256 *.jar > SHA256SUMS )

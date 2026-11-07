@@ -1,73 +1,87 @@
 import Foundation
 
-// INERT IN THE CURRENTLY SHIPPED NATIVE IMAGE. The Java half that consumes
-// hudPitchOffset (Vivecraft patch 0006) is not in the libminecraft.dylib this
-// app ships with yet, so the rewrite below changes a value nothing reads. It
-// is here so the host source and that patch agree once the image is rebaked.
-
-// One-time HUD pitch move for a Vivecraft profile: the stored hudPitchOffset
-// "-2.0" (the old stock value) becomes "-15.0". Nothing else.
+// One-time HUD pitch move for a Vivecraft profile (v2): the stored
+// hudPitchOffset becomes "-8.0" when it still holds a value this port put
+// there, never when the player chose it. Nothing else.
 //
-// Why the host does anything at all: the Java side (a separate patch, not in
-// this file) now consumes hudPitchOffset and ships -15 as its default, next to
-// the comfort placement HEAD / 2.0 m / 0.8. A default only reaches a profile
-// with no stored value, though — a stored value wins — and every profile that
-// ran the old build has the old stock "-2.0" that saveOptions wrote (all values
-// as JSON strings, see MCUIComfort.swift). So there is no seed and no init
-// here; this rewrites exactly that one stored value, once per profile:
+// History. Vivecraft patch 0006 makes hudPitchOffset act on the head-locked
+// HUD; its new-profile default was -15 in the 1.0.2.x builds and is -8 now
+// (Austin: -15 is a touch too low). The 1.0.2.x host ran v1 of this file,
+// which rewrote the old upstream stock "-2.0" to "-15.0" and wrote
+// config/.minecraft-hud-pitch-v1. A default only reaches a profile with no
+// stored value — a stored value wins — and saveOptions writes every value (as
+// JSON strings, see MCUIComfort.swift), so a 1.0.2.x profile has "-15.0"
+// stored whichever way it got there: v1's rewrite (v1 marker "applied"), or the
+// game's own -15 default saved on the first run (v1, one launch later, saw
+// "-15.0" and recorded "customized"). Both are the port's value, not the
+// player's, so "-15.0" moves regardless of what the v1 marker says.
+//
+// What counts as the port's value, i.e. what is rewritten to "-8.0":
+//   * exactly the string "-15.0"            always (the 1.0.2.x value).
+//   * exactly the string "-2.0", no v1 marker   the old upstream stock that
+//                                            v1 never got to see.
+// Everything else is the player's (or another tool's) choice and stays:
+// "-2.0" WITH a v1 marker (v1 already acted, so the player picked it later),
+// "-12.0", the number -15, "-15", "-8.0", null...
 //
 //   * no config yet          nothing written, no marker. The game writes its
-//                            config on the first run with its own default (-15);
+//                            config on the first run with its own default (-8);
 //                            the next launch looks again.
-//   * hudPitchOffset absent  marker written, config untouched. The new Java's
-//                            default is what such a profile gets, so there is
-//                            nothing to move — and recording it means a player
-//                            who later picks -2.0 in game keeps it.
-//   * exactly the string "-2.0", on a line of its own (Gson's pretty shape)
-//                            rewritten to "-15.0": backup, atomic write, marker.
-//   * anything else          "-10.0", the number -2, "-2", "-15.0", null...:
-//                            the player's (or another tool's) choice. Marker,
-//                            config untouched.
+//   * hudPitchOffset absent  marker written, config untouched (the game's
+//                            default applies; a later in-game pick is kept).
+//   * a port value, on a line of its own (Gson's pretty shape)
+//                            rewritten to "-8.0": backup, atomic write, marker.
+//   * anything else          marker, config untouched.
 //   * duplicate top-level hudPitchOffset keys, not a JSON object, not the
 //     one-key-per-line shape, over 1 MiB, not UTF-8, a symlink or not a regular
 //     file (the config, or config/ itself): refused. Nothing written, no
 //     marker; the next launch looks again.
 //
-// Independent of MCUIComfort: its own marker (config/.minecraft-hud-pitch-v1)
-// and backup (<config>.minecraft-hud-pitch-v1.orig), and the comfort marker is
-// never read — a profile comfort already moved (HEAD / 2.0 / 0.8, its marker
-// present) still gets the pitch. It runs right after MCUIComfort on the same
-// file, so it sees comfort's result.
+// Independent of MCUIComfort: its own marker (config/.minecraft-hud-pitch-v2)
+// and backup (<config>.minecraft-hud-pitch-v2.orig); the comfort marker is
+// never read. The v1 marker and backup are only ever read for existence, never
+// written or removed. It runs right after MCUIComfort on the same file, so it
+// sees comfort's result.
 //
-// The edit is proved, not assumed: the output is the input with the 4 bytes
-// "-2.0" replaced by "-15.0" on exactly one line, it re-parses, its dictionary
-// equals the original's with only hudPitchOffset changed, and it still has
-// exactly one top-level hudPitchOffset.
+// The edit is proved, not assumed: the output is the input with the one
+// stored string replaced by "-8.0" on exactly one line, it re-parses, its
+// dictionary equals the original's with only hudPitchOffset changed, and it
+// still has exactly one top-level hudPitchOffset.
 //
 // Never throws; never deletes anything but its own temporary backup name;
-// never touches saves/, options.txt, .account or any other key. No config value
-// is logged or written to the marker. The outcome is one line the caller logs.
+// never touches saves/, options.txt, .account or any other key. The marker
+// names only the two port values involved. The outcome is one line the caller logs.
 //
 // Fixtures (Foundation only, no app code):
 //   swiftc -parse-as-library -D MC_HUD_PITCH_TEST MCHUDPitch.swift -o hudpitch && ./hudpitch
 
 enum MCHUDPitch {
-    static let version = "v1"
-    static let markerName = ".minecraft-hud-pitch-v1"
-    static let backupSuffix = ".minecraft-hud-pitch-v1.orig"
+    static let version = "v2"
+    static let markerName = ".minecraft-hud-pitch-v2"
+    static let backupSuffix = ".minecraft-hud-pitch-v2.orig"
+    /// v1 (1.0.2.x) marker: only its existence is read.
+    static let v1MarkerName = ".minecraft-hud-pitch-v1"
     static let configRelative = "config/vivecraft-client-config.json"
     static let key = "hudPitchOffset"
+    /// The old upstream stock value.
     static let stock = "-2.0"
-    static let target = "-15.0"
+    /// The 1.0.2.x value (v1's rewrite target and patch 0006's first default).
+    static let previous = "-15.0"
+    static let target = "-8.0"
+
+    /// The stored strings that are the port's, not the player's.
+    static func portValues(v1MarkerPresent: Bool) -> Set<String> {
+        v1MarkerPresent ? [previous] : [previous, stock]
+    }
     /// A real Vivecraft config is a few KB.
     static let maxBytes = 1 << 20
 
     // --- pure -------------------------------------------------------------
 
     enum Decision: Equatable {
-        /// The rewritten text.
-        case rewrite(String)
-        /// Present, but not exactly the string "-2.0": the player's choice.
+        /// The rewritten text, and the stored string it replaced.
+        case rewrite(String, from: String)
+        /// Present, but not one of the port's strings: the player's choice.
         case customized
         /// No top-level hudPitchOffset: the game's own default applies.
         case absent
@@ -75,32 +89,33 @@ enum MCHUDPitch {
         case malformed(String)
     }
 
-    /// Decide on the config text alone. No file access.
-    static func decide(_ text: String) -> Decision {
+    /// Decide on the config text alone. No file access. `from`: the stored
+    /// strings that are the port's (portValues).
+    static func decide(_ text: String, from: Set<String>) -> Decision {
         let src = Array(text.utf8)
         if src.count > maxBytes { return .malformed("larger than 1 MiB") }
         guard let dict = parse(text) else { return .malformed("not a JSON object of settings") }
         guard let n = topLevelCount(of: key, in: src) else { return .malformed("could not scan the keys") }
         if n > 1 { return .malformed("\(key) appears \(n) times") }
         if n == 0 { return dict[key] == nil ? .absent : .malformed("\(key): parser and scanner disagree") }
-        guard (dict[key] as? String) == stock else { return .customized }
+        guard let stored = dict[key] as? String, from.contains(stored) else { return .customized }
 
         // Line-wise: one occurrence, on a line holding only this key.
-        let from = Array("\"\(key)\": \"\(stock)\"".utf8)
+        let old = Array("\"\(key)\": \"\(stored)\"".utf8)
         let to = Array("\"\(key)\": \"\(target)\"".utf8)
-        let at = occurrences(of: from, in: src)
+        let at = occurrences(of: old, in: src)
         guard at.count == 1, let lo = at.first else {
-            return .malformed("expected exactly one `\"\(key)\": \"\(stock)\"`, found \(at.count)")
+            return .malformed("expected exactly one `\"\(key)\": \"\(stored)\"`, found \(at.count)")
         }
         let nl = UInt8(ascii: "\n")
         let pad: Set<UInt8> = [0x20, 0x09, 0x0D]
         var line = src[(src[..<lo].lastIndex(of: nl).map { $0 + 1 } ?? 0)..<(src[lo...].firstIndex(of: nl) ?? src.count)]
         while let c = line.first, pad.contains(c) { line = line.dropFirst() }
         while let c = line.last, pad.contains(c) { line = line.dropLast() }
-        guard line.elementsEqual(from) || line.elementsEqual(from + [UInt8(ascii: ",")]) else {
+        guard line.elementsEqual(old) || line.elementsEqual(old + [UInt8(ascii: ",")]) else {
             return .malformed("\(key) is not on a line of its own")
         }
-        let outBytes = Array(src[..<lo]) + to + Array(src[(lo + from.count)...])
+        let outBytes = Array(src[..<lo]) + to + Array(src[(lo + old.count)...])
 
         // Prove the edit touched nothing else: exactly one line differs, the
         // result parses, equals the original with only the one value replaced,
@@ -118,7 +133,7 @@ enum MCHUDPitch {
             return .malformed("the rewrite changed a key other than \(key)")
         }
         guard topLevelCount(of: key, in: outBytes) == 1 else { return .malformed("the rewrite changed the key count") }
-        return .rewrite(out)
+        return .rewrite(out, from: stored)
     }
 
     private static func parse(_ text: String) -> [String: Any]? {
@@ -191,12 +206,12 @@ enum MCHUDPitch {
     // --- the profile ------------------------------------------------------
 
     enum Outcome: Equatable {
-        /// "-2.0" -> "-15.0". `keptEarlierBackup`: a backup from an earlier,
-        /// interrupted attempt was already there and was left as it was.
-        case applied(keptEarlierBackup: Bool)
+        /// `from` (a port value) -> "-8.0". `keptEarlierBackup`: a backup from
+        /// an earlier, interrupted attempt was already there and was left as it was.
+        case applied(from: String, keptEarlierBackup: Bool)
         /// The marker exists; its first line.
         case alreadyDone(String)
-        /// Not the stock string: the marker was written, the config was not.
+        /// Not a port value: the marker was written, the config was not.
         case customized
         /// No hudPitchOffset key: the marker was written, the config was not.
         case absent
@@ -211,8 +226,8 @@ enum MCHUDPitch {
         var summary: String {
             let key = MCHUDPitch.key
             switch self {
-            case .applied(let kept):
-                return "applied (\(key) \(MCHUDPitch.stock) -> \(MCHUDPitch.target))" + (kept ? "; earlier backup kept" : "")
+            case .applied(let from, let kept):
+                return "applied (\(key) \(from) -> \(MCHUDPitch.target))" + (kept ? "; earlier backup kept" : "")
             case .alreadyDone(let m): return "already decided: \(m)"
             case .customized: return "left alone, \(key) customized"
             case .absent: return "left alone, \(key) absent (the game's default applies)"
@@ -250,7 +265,7 @@ enum MCHUDPitch {
             return .unreadable("the config is not UTF-8 text")
         }
         let stamp = ISO8601DateFormatter().string(from: now)
-        switch decide(text) {
+        switch decide(text, from: portValues(v1MarkerPresent: exists(dir + "/" + v1MarkerName))) {
         case .malformed(let why):
             return .unreadable(why)
         case .customized:
@@ -259,7 +274,7 @@ enum MCHUDPitch {
         case .absent:
             writeMarker(marker, "\(version) skipped \(stamp): \(key) absent (the game's default applies)")
             return .absent
-        case .rewrite(let out):
+        case .rewrite(let out, let from):
             let backup = cfg + backupSuffix
             let kept: Bool
             do { kept = try backUpOnce(data, to: backup) } catch {
@@ -268,10 +283,10 @@ enum MCHUDPitch {
             do { try Data(out.utf8).write(to: URL(fileURLWithPath: cfg), options: .atomic) } catch {
                 return .writeFailed("the config (code \((error as NSError).code))")
             }
-            writeMarker(marker, "\(version) applied \(stamp): \(key) \(stock) -> \(target)\n"
+            writeMarker(marker, "\(version) applied \(stamp): \(key) \(from) -> \(target)\n"
                         + "original: \((backup as NSString).lastPathComponent)"
                         + (kept ? " (from an earlier attempt, kept)" : "") + "\n")
-            return .applied(keptEarlierBackup: kept)
+            return .applied(from: from, keptEarlierBackup: kept)
         }
     }
 
@@ -359,7 +374,11 @@ extension MCHUDPitch {
     """
 
     static let pitchLine = "\"hudPitchOffset\": \"-2.0\""
-    static let movedLine = "\"hudPitchOffset\": \"-15.0\""
+    static let movedLine = "\"hudPitchOffset\": \"-8.0\""
+    /// The 1.0.2.x value, in the same line shape.
+    static let previousLine = "\"hudPitchOffset\": \"-15.0\""
+    static let fresh = portValues(v1MarkerPresent: false)
+    static let afterV1 = portValues(v1MarkerPresent: true)
 
     /// The same profile after MCUIComfort moved the HUD (HEAD / 2.0 / 0.8).
     static var comfortFixture: String {
@@ -380,10 +399,10 @@ extension MCHUDPitch {
     static func selfTest() -> String? {
         // 1. Old stock: exactly the one value moves, every other byte stays.
         if topLevelCount(of: key, in: Array(stockFixture.utf8)) != 1 { return "scan: stock count" }
-        guard case .rewrite(let out) = decide(stockFixture) else { return "stock: \(decide(stockFixture))" }
+        guard case .rewrite(let out, _) = decide(stockFixture, from: fresh) else { return "stock: \(decide(stockFixture, from: fresh))" }
         if !same(out, edit(stockFixture, pitchLine, movedLine)) { return "stock: output differs from the expected bytes" }
         guard let d = parse(out) else { return "stock: output does not parse" }
-        if d[key] as? String != target { return "stock: not -15.0" }
+        if d[key] as? String != target { return "stock: not -8.0" }
         if d["someFuturePitch"] as? String != "-2.0" { return "stock: unknown key holding -2.0 touched" }
         if (d["futureTyped"] as? NSNumber)?.doubleValue != -2.0 || d["futureTyped"] is String { return "stock: typed value touched" }
         if d["futureList"] as? [String] != ["hudPitchOffset", "-2.0"] { return "stock: array touched" }
@@ -396,38 +415,53 @@ extension MCHUDPitch {
 
         // 2. Already comfort-moved (HEAD / 2.0 / 0.8): the pitch still moves, the rest stays.
         let comfort = comfortFixture
-        guard case .rewrite(let outC) = decide(comfort) else { return "comfort: \(decide(comfort))" }
+        guard case .rewrite(let outC, _) = decide(comfort, from: fresh) else { return "comfort: \(decide(comfort, from: fresh))" }
         if !same(outC, edit(comfort, pitchLine, movedLine)) { return "comfort: output differs" }
 
         // 3. Other line shapes Gson or an editor can produce.
         let crlf = stockFixture.replacingOccurrences(of: "\n", with: "\r\n")
-        guard case .rewrite(let outR) = decide(crlf), same(outR, edit(crlf, pitchLine, movedLine))
-        else { return "crlf: \(decide(crlf))" }
+        guard case .rewrite(let outR, _) = decide(crlf, from: fresh), same(outR, edit(crlf, pitchLine, movedLine))
+        else { return "crlf: \(decide(crlf, from: fresh))" }
         let last = edit(edit(stockFixture, "  \(pitchLine),\n", ""),
                         "  \"vrEnabled\": \"true\"\n", "  \"vrEnabled\": \"true\",\n  \(pitchLine)\n")
-        guard case .rewrite(let outL) = decide(last), same(outL, edit(last, pitchLine, movedLine))
-        else { return "last key: \(decide(last))" }
+        guard case .rewrite(let outL, _) = decide(last, from: fresh), same(outL, edit(last, pitchLine, movedLine))
+        else { return "last key: \(decide(last, from: fresh))" }
         let tabbed = edit(stockFixture, "  \(pitchLine),", "\t\(pitchLine),  ")
-        guard case .rewrite(let outT) = decide(tabbed), same(outT, edit(tabbed, pitchLine, movedLine))
-        else { return "tabbed: \(decide(tabbed))" }
+        guard case .rewrite(let outT, _) = decide(tabbed, from: fresh), same(outT, edit(tabbed, pitchLine, movedLine))
+        else { return "tabbed: \(decide(tabbed, from: fresh))" }
 
-        // 4. Anything but the exact string "-2.0" is the player's: left alone.
-        for v in ["\"-10.0\"", "-2", "-2.0", "\"-2\"", "\"-2.00\"", "\" -2.0\"", "\"-15.0\"", "null"] {
+        // 4. Anything but the exact port strings is the player's: left alone.
+        for v in ["\"-10.0\"", "\"-12.0\"", "-2", "-2.0", "\"-2\"", "\"-2.00\"", "\" -2.0\"",
+                  "-15", "-15.0", "\"-15\"", "\"-15.00\"", "\"-8.0\"", "null"] {
             let s = edit(stockFixture, pitchLine, "\"hudPitchOffset\": " + v)
-            if decide(s) != .customized { return "custom \(v): \(decide(s))" }
+            if decide(s, from: fresh) != .customized { return "custom \(v): \(decide(s, from: fresh))" }
         }
+
+        // 4b. The 1.0.2.x value moves with or without a v1 marker; the old
+        // stock "-2.0" only without one (with one, v1 acted and the player picked it).
+        let previous = edit(stockFixture, pitchLine, previousLine)
+        for (name, set) in [("fresh", fresh), ("after v1", afterV1)] {
+            guard case .rewrite(let outP, let from) = decide(previous, from: set), from == MCHUDPitch.previous else {
+                return "-15 (\(name)): \(decide(previous, from: set))"
+            }
+            if !same(outP, edit(previous, previousLine, movedLine)) { return "-15 (\(name)): output differs" }
+        }
+        guard case .rewrite(_, let fromStock) = decide(stockFixture, from: fresh), fromStock == stock else {
+            return "stock: from"
+        }
+        if decide(stockFixture, from: afterV1) != .customized { return "stock after v1: \(decide(stockFixture, from: afterV1))" }
 
         // 5. Absent: nothing to move (the game's default applies).
         let absent = edit(stockFixture, "  \(pitchLine),\n", "")
-        if decide(absent) != .absent { return "absent: \(decide(absent))" }
-        if decide("{}") != .absent { return "empty object: \(decide("{}"))" }
+        if decide(absent, from: fresh) != .absent { return "absent: \(decide(absent, from: fresh))" }
+        if decide("{}", from: fresh) != .absent { return "empty object: \(decide("{}", from: fresh))" }
         let nestedOnly = edit(absent, "  \"vrEnabled\": \"true\"\n",
                               "  \"vrEnabled\": \"true\",\n  \"futureObj\": {\n    \(pitchLine)\n  }\n")
-        if decide(nestedOnly) != .absent { return "nested only: \(decide(nestedOnly))" }
+        if decide(nestedOnly, from: fresh) != .absent { return "nested only: \(decide(nestedOnly, from: fresh))" }
 
         // 6. Idempotent: the result is no longer stock.
-        if decide(out) != .customized { return "idempotency: \(decide(out))" }
-        if decide(outC) != .customized { return "idempotency (comfort): \(decide(outC))" }
+        if decide(out, from: fresh) != .customized { return "idempotency: \(decide(out, from: fresh))" }
+        if decide(outC, from: fresh) != .customized { return "idempotency (comfort): \(decide(outC, from: fresh))" }
 
         // 7. Refused without a rewrite.
         let refused: [(String, String)] = [
@@ -445,7 +479,7 @@ extension MCHUDPitch {
             ("oversize", edit(stockFixture, "\"take this!\"", "\"" + String(repeating: "x", count: maxBytes) + "\"")),
         ]
         for (name, s) in refused {
-            if case .malformed = decide(s) {} else { return "\(name): accepted (\(decide(s)))" }
+            if case .malformed = decide(s, from: fresh) {} else { return "\(name): accepted (\(decide(s, from: fresh)))" }
         }
         return nil
     }
@@ -478,7 +512,7 @@ extension MCHUDPitch {
             // Old stock: applied, backup is the original, marker, second pass a no-op.
             let a = try profile("stock", stockFixture)
             let cfg = a + "/" + configRelative
-            if apply(profileDir: a) != .applied(keptEarlierBackup: false) { return "stock: not applied" }
+            if apply(profileDir: a) != .applied(from: stock, keptEarlierBackup: false) { return "stock: not applied" }
             if read(cfg) != movedData { return "stock: config bytes differ" }
             if read(cfg + backupSuffix) != stockData { return "stock: backup missing or differs" }
             guard let m = marker(a), m.hasPrefix("\(version) applied ") else { return "stock: marker missing" }
@@ -497,7 +531,7 @@ extension MCHUDPitch {
 
             // Even with the marker lost, a re-run changes nothing.
             let r = try profile("rerun", stockFixture)
-            if apply(profileDir: r) != .applied(keptEarlierBackup: false) { return "rerun: not applied" }
+            if apply(profileDir: r) != .applied(from: stock, keptEarlierBackup: false) { return "rerun: not applied" }
             try fm.removeItem(atPath: r + "/config/" + markerName)
             if apply(profileDir: r) != .customized { return "rerun: \(apply(profileDir: r))" }
             if read(r + "/" + configRelative) != movedData || read(r + "/" + configRelative + backupSuffix) != stockData {
@@ -512,12 +546,39 @@ extension MCHUDPitch {
             try put(oldMarker, "v1 applied 2026-10-01T00:00:00Z: vrHudLockMode,hudDistance,headHudScale\n")
             try put(oldBackup, stockFixture)
             let oldMarkerData = read(oldMarker)
-            if apply(profileDir: b) != .applied(keptEarlierBackup: false) { return "comfort: not applied" }
+            if apply(profileDir: b) != .applied(from: stock, keptEarlierBackup: false) { return "comfort: not applied" }
             if read(b + "/" + configRelative) != Data(edit(comfortFixture, pitchLine, movedLine).utf8) {
                 return "comfort: config bytes differ"
             }
             if read(oldMarker) != oldMarkerData || read(oldBackup) != stockData { return "comfort: old comfort files touched" }
             if !hasMarker(b) || !kept(b) { return "comfort: marker missing or profile touched" }
+
+            // 1.0.2.x profiles: v1 marker (applied, or customized because the
+            // game saved its -15 default first) and "-15.0": moved to -8, the v1
+            // marker and backup untouched. User-changed values with a v1 marker stay.
+            for (name, v1) in [("v1-applied", "v1 applied 2026-10-30T00:00:00Z: hudPitchOffset -2.0 -> -15.0\n"),
+                               ("v1-customized", "v1 skipped 2026-10-30T00:00:00Z: hudPitchOffset customized (left as is)\n"),
+                               ("no-v1", nil)] {
+                let text = edit(stockFixture, pitchLine, previousLine)
+                let p = try profile(name, text)
+                let c = p + "/" + configRelative
+                let v1Path = p + "/config/" + v1MarkerName
+                if let v1 { try put(v1Path, v1) }
+                if apply(profileDir: p) != .applied(from: previous, keptEarlierBackup: false) { return "\(name): not applied" }
+                if read(c) != Data(edit(text, previousLine, movedLine).utf8) { return "\(name): config bytes differ" }
+                if read(c + backupSuffix) != Data(text.utf8) { return "\(name): backup" }
+                if let v1, read(v1Path) != Data(v1.utf8) { return "\(name): v1 marker touched" }
+                guard let m = marker(p), m.contains("-15.0 -> -8.0") else { return "\(name): marker" }
+                if !kept(p) { return "\(name): profile touched" }
+            }
+            for (name, v) in [("v1-user-12", "\"-12.0\""), ("v1-user-2", "\"-2.0\"")] {
+                let text = edit(stockFixture, pitchLine, "\"hudPitchOffset\": " + v)
+                let p = try profile(name, text)
+                try put(p + "/config/" + v1MarkerName, "v1 applied 2026-10-30T00:00:00Z: hudPitchOffset -2.0 -> -15.0\n")
+                if apply(profileDir: p) != .customized { return "\(name): \(apply(profileDir: p))" }
+                if read(p + "/" + configRelative) != Data(text.utf8) { return "\(name): config changed" }
+                if exists(p + "/" + configRelative + backupSuffix) { return "\(name): backup written" }
+            }
 
             // Custom values, string and number: config untouched, no backup, marker without the value.
             for (name, v) in [("custom-string", "\"-10.0\""), ("custom-number", "-2")] {
@@ -599,7 +660,7 @@ extension MCHUDPitch {
             let k = try profile("backup-kept", stockFixture)
             let kc = k + "/" + configRelative
             try put(kc + backupSuffix, "older\n")
-            if apply(profileDir: k) != .applied(keptEarlierBackup: true) { return "backup kept: \(apply(profileDir: k))" }
+            if apply(profileDir: k) != .applied(from: stock, keptEarlierBackup: true) { return "backup kept: \(apply(profileDir: k))" }
             if read(kc + backupSuffix) != Data("older\n".utf8) { return "backup kept: backup overwritten" }
             if read(kc) != movedData { return "backup kept: config not moved" }
         } catch {

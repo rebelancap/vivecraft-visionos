@@ -123,7 +123,7 @@ public final class HudPitchTransformTest {
             for (float pitch : new float[]{0, 25, -35, 80}) {
                 for (float roll : new float[]{0, 20, -25, 90}) {
                     for (float radius : radii) {
-                        for (float degrees : new float[]{0, -15, 15, -45, 45, -2, 7.5f}) {
+                        for (float degrees : new float[]{0, -8, -15, 15, -45, 45, -2, 7.5f}) {
                             String label = "yaw " + yaw + " pitch " + pitch + " roll " + roll + " radius " +
                                 radius + " deg " + degrees;
                             Matrix4f base = new Matrix4f()
@@ -197,7 +197,7 @@ public final class HudPitchTransformTest {
                         position.z + sharedDirection.z * worldScale * hudDistance);
 
                     HeadHudPitch.Placement result = HeadHudPitch.pitchInGameHud(false, false, position, guipos,
-                        guirot, -15.0F);
+                        guirot, -8.0F);
 
                     bitExact(sharedEye, sharedEyeSnapshot, label + ": shared eye pose untouched");
                     check(sharedDirection.equals(directionSnapshot), label + ": shared direction untouched");
@@ -207,7 +207,7 @@ public final class HudPitchTransformTest {
 
                     double radius = delta(guipos, position).length();
                     near(radius, worldScale * hudDistance, 1.0e-5 * (1.0 + radius), label + ": radius from worldScale");
-                    checkPlacement(result, guirot, position, guipos, radius, -15.0F, label);
+                    checkPlacement(result, guirot, position, guipos, radius, -8.0F, label);
                 }
             }
         }

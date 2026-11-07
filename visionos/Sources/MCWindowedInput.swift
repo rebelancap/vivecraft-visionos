@@ -87,12 +87,12 @@ import SwiftUI
 // only sends while kl_app_native_windowed_ready(), which is 0 in a VR run, so
 // the two never feed the game at once.
 @MainActor
-final class MCWindowedInput: ObservableObject {
+final class MCWindowedInput {
     static let shared = MCWindowedInput()
     /// KL_GAMEPAD_DEBUG=1: an element census per Sense controller and one line
     /// per pressed element edge. The per-connect line is always on.
     static let debug = ProcessInfo.processInfo.environment["KL_GAMEPAD_DEBUG"] == "1"
-    @Published private(set) var controllerName: String?
+    private var controllerName: String?
     private var windows: [UUID: Bool] = [:]
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
@@ -103,12 +103,6 @@ final class MCWindowedInput: ObservableObject {
     private var state = MCWindowedPadState()
     private var previousTime: TimeInterval?
     private var sending = false
-
-    var hint: String {
-        controllerName == nil
-            ? "Pair a DualSense to play in this window. Pinch selects menu items."
-            : "Left stick move · Right stick look · Cross jump · Triangle inventory · R2 select/attack · L2 use · L1/R1 hotbar · L3 sprint · Circle/Options pause"
-    }
 
     private init() {
         let center = NotificationCenter.default

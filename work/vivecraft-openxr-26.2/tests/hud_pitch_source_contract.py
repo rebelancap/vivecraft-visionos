@@ -9,12 +9,16 @@ GuiHandler only gained one inserted hunk and VRSettings changed exactly the four
 
 usage: python3 -I tests/hud_pitch_source_contract.py [CANDIDATE_ROOT [ORIGINAL_ROOT]]
 
+The expected pitch default is -8.0f (the 26.3 patch 0006). The 26.2 patch 0006 still ships -15.0f:
+check that tree with HUD_PITCH_DEFAULT=-15.0f in the environment (python3 -I keeps os.environ).
+
 CANDIDATE_ROOT is a Vivecraft repo root (containing common/src/main/java); defaults to this
 workspace's candidate/. ORIGINAL_ROOT defaults to this workspace's original/ and the diff checks
 are skipped (reported) if it does not exist. Standard library only, bounded input sizes.
 """
 
 import difflib
+import os
 import re
 import sys
 from pathlib import Path
@@ -26,6 +30,7 @@ HELPER = JAVA / "gameplay/screenhandlers/HeadHudPitch.java"
 VR_SETTINGS = JAVA / "settings/VRSettings.java"
 
 WORKSPACE = Path(__file__).resolve().parent.parent
+PITCH_DECL = f"public float hudPitchOffset = {os.environ.get('HUD_PITCH_DEFAULT', '-8.0f')};"
 
 failures = []
 passed = 0
@@ -256,7 +261,7 @@ DEFAULTS = [
     ("@SettingField(VrOptions.HUD_DISTANCE)",
      "public float hudDistance = 1.25f;", "public float hudDistance = 2.0f;"),
     ("@SettingField",
-     "public float hudPitchOffset = -2f;", "public float hudPitchOffset = -15.0f;"),
+     "public float hudPitchOffset = -2f;", PITCH_DECL),
     ("@SettingField(VrOptions.HUD_LOCK_TO)",
      "public HUDLock vrHudLockMode = HUDLock.WRIST;", "public HUDLock vrHudLockMode = HUDLock.HEAD;"),
 ]
@@ -293,7 +298,7 @@ def check_config_loading(src):
     for key, decl in [("vrHudLockMode", "public HUDLock vrHudLockMode = HUDLock.HEAD;"),
                       ("hudDistance", "public float hudDistance = 2.0f;"),
                       ("headHudScale", "public float hudScale = 0.8f;"),
-                      ("hudPitchOffset", "public float hudPitchOffset = -15.0f;")]:
+                      ("hudPitchOffset", PITCH_DECL)]:
         if check(decl in lines, f"{tag}: `{decl}` declared"):
             alias = re.search(r'config = "(\w+)"', lines[lines.index(decl) - 1])
             field = re.search(r"(\w+) =", decl).group(1)

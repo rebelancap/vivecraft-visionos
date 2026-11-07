@@ -82,7 +82,7 @@ git -C VivecraftMod checkout -B kl-mobile-26.3 15a9011f
 git -C VivecraftMod am "$ROOT/work/vivecraft-openxr-26.3/patches/"*.patch
 ```
 
-After 0000–0006, `git -C VivecraftMod rev-parse 'HEAD^{tree}'` prints `cb591f18073be44897964a6e646776f9fa81da22`. <!-- TODO(orchestrator): refresh after 0006 amend --> That is a tree hash; the commit ids `git am` makes depend on your name and the time. License: LGPLv3.
+After 0000–0006, `git -C VivecraftMod rev-parse 'HEAD^{tree}'` prints `b0488a1e424191a8d9b95afde53d46b54d294282`. That is a tree hash; the commit ids `git am` makes depend on your name and the time. License: LGPLv3.
 
 ```
 cd VivecraftMod
@@ -103,10 +103,10 @@ Gradle 9.3.0 (the wrapper) resolves `fabric_loom=1.15-SNAPSHOT` to Loom 1.15.5, 
 
 The raw jar in `build/libs/` is not byte-reproducible: Loom writes changing ZIP metadata for the nested jars even when every file inside is identical. `canonicalize-vivecraft-jar.py` (the 26.2 directory's copy, used by relative path) rewrites it as a sorted, uncompressed ZIP with fixed metadata and the same entries and bytes. It refuses to overwrite its output, hence the `rm -f`.
 
-Expected sha256 of `build/canonical/vivecraft-26.3-1.3.18-fabric.jar` (patches 0000–0006, 19,769,483 bytes): <!-- TODO(orchestrator): refresh after 0006 amend -->
+Expected sha256 of `build/canonical/vivecraft-26.3-1.3.18-fabric.jar` (patches 0000–0006, 19,769,483 bytes):
 
 ```
-bc2e03e81a1f555efd7389c5e5ed5bb6eb85e235f0e7f131eb6ca5509d0320f3
+5092c004f1ab35185dd0e428ad8ff5c4d6c887f72c861649dabb00544f147d87
 ```
 
 Two independent builds gave that hash; their raw Loom jars differed.

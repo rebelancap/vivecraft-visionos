@@ -22,7 +22,7 @@ cd work/vivecraft-openxr-26.3
 git clone https://github.com/Vivecraft/VivecraftMod VivecraftMod
 git -C VivecraftMod checkout -B kl-mobile-26.3 15a9011f
 git -C VivecraftMod am "$PWD/patches/"*.patch          # 0000..0006
-git -C VivecraftMod rev-parse 'HEAD^{tree}'             # cb591f18073be44897964a6e646776f9fa81da22
+git -C VivecraftMod rev-parse 'HEAD^{tree}'             # b0488a1e424191a8d9b95afde53d46b54d294282
 cd VivecraftMod
 printf 'project.build.excludeForge=true\nproject.build.excludeNeoforge=true\n' > local.properties
 export JAVA_HOME="$ROOT/work/native-image/graalvm/graalvm-jdk-25.0.4+7.1/Contents/Home"
@@ -38,10 +38,16 @@ python3 -I ../../vivecraft-openxr-26.2/canonicalize-vivecraft-jar.py \
 ## Hashes
 
 - Git trees: after 0000 `3c35acf95a067826a2c0fb2a2193ee06920cd0ee`; after 0000–0005
-  `3699b3f2a362c30c9050a9780a7bde264a883104`; **after 0000–0006 `cb591f18073be44897964a6e646776f9fa81da22`**.
+  `3699b3f2a362c30c9050a9780a7bde264a883104`; **after 0000–0006 `b0488a1e424191a8d9b95afde53d46b54d294282`**
+  (patch 0006 amended 2026-11-07: new-profile `hudPitchOffset` default −15° → −8°; the first 0006 gave
+  `cb591f18073be44897964a6e646776f9fa81da22`).
   Commit ids depend on who applies the patches and when; only the tree hashes are stable.
-- Canonical jar `VivecraftMod/build/canonical/vivecraft-26.3-1.3.18-fabric.jar` (0000–0006): **19,769,483 bytes,
-  sha256 `bc2e03e81a1f555efd7389c5e5ed5bb6eb85e235f0e7f131eb6ca5509d0320f3`**. Two independent builds (the working
+- Canonical jar `VivecraftMod/build/canonical/vivecraft-26.3-1.3.18-fabric.jar` (0000–0006, HUD pitch −8°):
+  **19,769,483 bytes, sha256 `5092c004f1ab35185dd0e428ad8ff5c4d6c887f72c861649dabb00544f147d87`** (2026-11-07). Against
+  the −15° jar below, exactly one entry differs: `org/vivecraft/client_vr/settings/VRSettings.class`. A fresh
+  worktree at `15a9011f` + `git am patches/*.patch` reproduces tree `b0488a1e`.
+- The −15° jar (first 0006, 2026-11-06, in the 1.0.2.x OTA builds): 19,769,483 bytes,
+  sha256 `bc2e03e81a1f555efd7389c5e5ed5bb6eb85e235f0e7f131eb6ca5509d0320f3`. Two independent builds (the working
   branch, and a fresh worktree at `15a9011f` + `git am patches/*.patch` with an empty `build/`) gave this same hash;
   their raw Loom jars differed (`fc8ac36e…` and `47968e7f…`, 11,228,105 bytes), as expected.
 - Built 2026-11-06 with GraalVM 25.0.4+7.1 as JAVA_HOME, Gradle 9.3.0, Loom 1.15.5, fabric-loader 0.19.5,

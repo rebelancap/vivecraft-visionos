@@ -3,7 +3,7 @@ Minecraft: Java Edition 26.3 + Vivecraft VR, running natively on Apple Vision Pr
 ## What's new for players
 - **Minecraft 26.3** with **Vivecraft 1.3.18**. The mods move to their 26.3 builds: Sodium 0.9.2, Lithium 0.26.3, Simple Voice Chat 2.6.27, Fabric API 0.165.2, and the rest (see the README).
 - **Your worlds come with you.** The first launch copies each account's 26.2 worlds, settings and servers into 26.3. The 26.2 copies are left untouched.
-- **Lower HUD.** The head-locked HUD now sits 8° below eye level. <!-- TODO(orchestrator): confirm what a profile copied from 1.0.2 (26.2, no patch 0006) gets; STATUS says -15 profiles are rewritten unless user-changed -->
+- **Lower HUD.** The head-locked HUD now sits 8° below eye level. Profiles that got the 1.0.2.x dev builds' −15° are moved to −8°; a pitch you set yourself is left alone (Vivecraft Settings → VR Settings → HUD to change it).
 - **PS VR2 Sense controllers work in windowed mode.** The pair acts as one gamepad: sticks, Cross/Circle/Triangle/Square, triggers, grips (L1/R1), stick clicks and Options.
 - **No more stray screenshot.** Earlier builds saved a screenshot about 25 seconds after every launch. That is gone.
 

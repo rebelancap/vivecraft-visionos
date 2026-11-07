@@ -25,12 +25,12 @@ Minecraft 26.3 (release 1.0.3 onward):
 - Base: https://github.com/Vivecraft/VivecraftMod branch `Multiloader-26.3` at `15a9011fd5eb7816d44e168256814fc4b5c24c04` ("bump to 1.3.18", mod 1.3.18).
 - Patch 0000 (`work/vivecraft-openxr-26.3/patches/0000-openxr-on-26.3.patch`): upstream's `openxr` branch at `13eafae17a987521cc270e81cd774a4746ad9299` merged onto `15a9011f` (merge base `dee18e33`), conflicts resolved and the openxr-only code adapted to 26.3 (`com.mojang.blaze3d.*` → `com.mojang.renderpearl.*`, SDL3 instead of GLFW, LWJGL OpenXR 3.4.3), squashed to one commit. It is upstream LGPLv3 code by the Vivecraft authors, not ours. Upstream has not moved `openxr` past 26.2. Resolutions are listed in `work/vivecraft-openxr-26.3/REPORT.md`.
 - Patches 0001–0006 (same subjects and authors as the 26.2 set, rebased): 0001–0005 are the port. 0006 (from [zschwendi/avp-craft](https://github.com/zschwendi/avp-craft)) lowers the head-locked in-world HUD (new-profile default −8°).
-- Git trees: after 0000 `3c35acf95a067826a2c0fb2a2193ee06920cd0ee`; after 0000–0005 `3699b3f2a362c30c9050a9780a7bde264a883104`; after 0000–0006 `cb591f18073be44897964a6e646776f9fa81da22`. <!-- TODO(orchestrator): refresh after 0006 amend -->
-- Jar (0000–0006, canonicalized with `work/vivecraft-openxr-26.2/canonicalize-vivecraft-jar.py`): `vivecraft-26.3-1.3.18-fabric.jar`, 19,769,483 bytes, sha256 `bc2e03e81a1f555efd7389c5e5ed5bb6eb85e235f0e7f131eb6ca5509d0320f3`. <!-- TODO(orchestrator): refresh after 0006 amend --> Built 2026-11-06 with GraalVM 25.0.4+7.1, Gradle 9.3.0, Loom 1.15.5, fabric-loader 0.19.5, Fabric API 0.165.2+26.3 (upstream's `gradle.properties` says 0.160.4+26.3). Two builds gave the same canonical hash; their raw Loom jars differed.
+- Git trees: after 0000 `3c35acf95a067826a2c0fb2a2193ee06920cd0ee`; after 0000–0005 `3699b3f2a362c30c9050a9780a7bde264a883104`; after 0000–0006 `b0488a1e424191a8d9b95afde53d46b54d294282`.
+- Jar (0000–0006, canonicalized with `work/vivecraft-openxr-26.2/canonicalize-vivecraft-jar.py`): `vivecraft-26.3-1.3.18-fabric.jar`, 19,769,483 bytes, sha256 `5092c004f1ab35185dd0e428ad8ff5c4d6c887f72c861649dabb00544f147d87`. Built 2026-11-07 (0006 at −8°) with GraalVM 25.0.4+7.1, Gradle 9.3.0, Loom 1.15.5, fabric-loader 0.19.5, Fabric API 0.165.2+26.3 (upstream's `gradle.properties` says 0.160.4+26.3). Two builds gave the same canonical hash; their raw Loom jars differed.
 - Nested LWJGL OpenXR: 3.4.3 (patch 0000 bumps `lwjgl_openxr_version` from 3.4.1).
 - License: LGPLv3 (`LICENSES/LGPL-3.0.txt`)
 
-**The 1.0.3 image has patch 0006.** It is the first shipped image that does. ni id: `5525e6e46964` (`out/t8-26.3`, `klmc t8a 2026-11-07T07:10Z`). <!-- TODO(orchestrator): refresh after 0006 amend -->
+**The 1.0.3 image has patch 0006.** It is the first shipped image that does. ni id: `3e783e38b00b` (`out/t8-26.3`, built as `out/t8-26.3c`, `klmc t8a 2026-11-07T23:08Z`).
 
 Minecraft 26.2 (releases 1.0.1 and 1.0.2, tag `1.0.2`):
 
@@ -86,10 +86,10 @@ Release 1.0.3 (Minecraft 26.3, Vivecraft 0000–0006). These dylibs are build ou
 
 | File | sha256 |
 | --- | --- |
-| `out/t8-26.3/xros/libminecraft.dylib` | `c1247765f4306d84a5fbca5a4f17af0cbb447fe2ab64abad86518b5e7d1bd814` <!-- TODO(orchestrator): refresh after 0006 amend --> |
-| `out/t8-26.3/xrsimulator/libminecraft.dylib` | `5a453cb3e6d44b21feae71c267752296181924b1b9edcbe5338a0d95c6c7e9ff` <!-- TODO(orchestrator): refresh after 0006 amend --> |
+| `out/t8-26.3/xros/libminecraft.dylib` | `b97d9970da59b945ffddf691e1416b19cecd30086bc0859275ea8f18c8fec587` |
+| `out/t8-26.3/xrsimulator/libminecraft.dylib` | `b07e998d61cf81ed4e2b31d9c4a4d41c88d9f139d51d7cea0b06485ec508e199` |
 
-Image id string on the xros dylib: `klmc t8a 2026-11-07T07:10Z xros ni=5525e6e46964`. <!-- TODO(orchestrator): refresh after 0006 amend --> These hashes are of the image the OTA 1.0.2.x builds carried (HUD default −15°); the 1.0.3 image with the −8° default replaces them.
+Image id string on the xros dylib: `klmc t8a 2026-11-07T23:08Z xros ni=3e783e38b00b`. These hashes are of the image the OTA 1.0.2.x builds carried (HUD default −15°); the 1.0.3 image with the −8° default replaces them.
 
 Releases 1.0.1 and 1.0.2 (Minecraft 26.2, Vivecraft 0001–0005), built in the private tree:
 

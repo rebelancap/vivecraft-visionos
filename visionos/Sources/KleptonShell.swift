@@ -250,7 +250,7 @@ struct ShellWindow: View {
     @State private var box = ShellSurface.Box()
     @State private var typed = ""
     @State private var inputWindowID = UUID()
-    @ObservedObject private var padInput = MCWindowedInput.shared
+    private let padInput = MCWindowedInput.shared
     @Environment(\.scenePhase) private var inputScenePhase
     @FocusState private var keyboardFocused: Bool
     // The guest's own surface size is read from its frames (box.view.guestW/H):
@@ -269,16 +269,6 @@ struct ShellWindow: View {
                 padInput.window(inputWindowID, active: phase == .active)
             }
             .onDisappear { padInput.removeWindow(inputWindowID) }
-            .overlay(alignment: .top) {
-                if kl_app_target_is_native() != 0 {
-                    Text(padInput.hint)
-                        .font(.caption2)
-                        .foregroundStyle(.white)
-                        .padding(6)
-                        .background(.black.opacity(0.65))
-                        .allowsHitTesting(false)
-                }
-            }
             // No .aspectRatio(.fit) letterbox: the surface fills the window and
             // the WINDOW is held to the guest's shape instead (lockWindow), so
             // there are no bars at any size the person drags it to.

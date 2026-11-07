@@ -2,14 +2,14 @@
 # work/native-image/scripts/t2/{build-lwjgl341-natives,build-klglfw341,build-freetype}.sh. The "341" in those file names
 # is historical; they build whichever LWJGL_VER this file selects.
 #   LWJGL_VER set        -> that version (must be in the table below)
-#   else from MCV        -> 26.2 = 3.4.1, 26.3 = 3.4.3 (MCV unset = 26.2, as inst.sh/jdk.sh)
+#   else from MCV        -> 26.2 = 3.4.1, 26.3 = 3.4.3 (MCV unset = 26.3, as inst.sh/jdk.sh)
 # Exports: LWJGL_VER LWJGL_COMMIT (the tag's commit, checked after clone) FT_TAG FT_COMMIT FT_SHA256 (the FreeType
 # release the stock LWJGL libfreetype.dylib.git of that version names; its tag archive sha256), FFI_VER FFI_SHA256 (the
 # static libffi release tarball in work/native-image/dl/libffi/ matching LWJGL's bundled ffi.h) and
 # LWJGL_OUT=work/natives/build/lwjgl-<ver>, LWJGL_SRC=work/natives/downloads/lwjgl3-<ver>, LWJGL_MV=.../lwjgl-<ver>-maven.
 # Provenance: work/natives/PROVENANCE.md.
 if [ -z "${LWJGL_VER:-}" ]; then
-  case ${MCV:-26.2} in
+  case ${MCV:-26.3} in
     26.2) LWJGL_VER=3.4.1 ;;
     26.3) LWJGL_VER=3.4.3 ;;
     *) echo "lwjgl-ver.sh: no LWJGL pin for MCV=${MCV:-} (set LWJGL_VER=3.4.1|3.4.3)" >&2; exit 2 ;;

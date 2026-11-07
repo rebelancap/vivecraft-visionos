@@ -1,5 +1,5 @@
 # inst.sh — sourced by the bake/classpath/run scripts (M3 stage A, 2026-10-12). Picks the Minecraft instance.
-#   MCV unset            -> 26.2 (this tree). I=$W/inst-26.2
+#   MCV unset            -> 26.3 (this tree). I=$W/inst-26.3
 #   MCV=1.21.5           -> I=$W (the old layout: vanilla/ fabric/ fgamedir/ bake/ baked/ *.cp)
 #   MCV=<other>          -> I=$W/inst-$MCV (same sub-layout; fetched by scripts/m3a/fetch-inst.py)
 # Shared by every instance: graalvm/, dl/lwjgl, lwjgl-fork/ (QC LWJGL 3.3.3 fork + natives), lwjgl-fork-t4/ (klglfw),
@@ -12,7 +12,7 @@
 _INST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 W="$(cd "$_INST_DIR/.." && pwd)"
 ROOT="$(cd "$_INST_DIR/../../.." && pwd)"
-MCV=${MCV:-26.2}
+MCV=${MCV:-26.3}
 . $W/scripts/jdk.sh   # G: GraalVM 21.0.12 for 1.21.x, 25.0.4 for 26.x (one resolver for every script)
 FLV=${FLV:-0.19.5}
 if [ "$MCV" = 1.21.5 ]; then

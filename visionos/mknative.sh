@@ -33,7 +33,7 @@ for pair in $KLT_NATIVES; do
     SRC="$ROOT/$(printf '%s' "$TPL" | sed -e "s/{sdk}/$PLAT/g" -e "s/{sim}/$SIM/g")"
     # MCV=<minecraft version> (unset/1.21.5 = the shipped image): the image for that instance is built into
     # out/t8-$MCV/ (M3A-1.21.11-HOST-REPORT.md §7); stage_native.sh must be run with the same MCV.
-    if [ "$NAME" = libminecraft ] && [ "${MCV:-26.2}" != 1.21.5 ]; then SRC="${SRC%%/out/t8/*}/out/t8-$MCV/${SRC#*/out/t8/}"; fi
+    if [ "$NAME" = libminecraft ] && [ "${MCV:-26.3}" != 1.21.5 ]; then SRC="${SRC%%/out/t8/*}/out/t8-$MCV/${SRC#*/out/t8/}"; fi
     if [ ! -f "$SRC" ]; then
       echo "!! $NAME ($PLAT): $SRC missing"
       case "$NAME" in

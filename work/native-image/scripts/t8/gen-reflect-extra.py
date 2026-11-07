@@ -18,10 +18,10 @@
 import json, os, subprocess, sys
 W = str(__import__('pathlib').Path(__file__).resolve().parents[2])
 S = os.path.dirname(os.path.abspath(__file__))
-# MCV=<version> picks the instance (as scripts/inst.sh). Unset means 26.2.
+# MCV=<version> picks the instance (as scripts/inst.sh). Unset means 26.3.
 # 1.21.5 = $W (writes config/t23-extra). Anything else = $W/inst-<v>
 # (reads inst-<v>/t4-ni.cp, writes inst-<v>/config/t23-extra/reflect-config.json).
-MCV = os.environ.get('MCV', '26.2')
+MCV = os.environ.get('MCV') or '26.3'
 IR = W if MCV == '1.21.5' else W + '/inst-' + MCV
 IDX = os.environ.get('IDX', W + '/out/t8/cpindex.json' if MCV == '1.21.5' else IR + '/out/cpindex.json')
 if not os.path.exists(IDX) or os.environ.get('RESCAN'):

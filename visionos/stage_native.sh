@@ -50,7 +50,7 @@ ROOT=".."
 eval "$(python3 targets.py "${KLEPTON_TARGET:-}")"
 BUNDLE_ID="${KLEPTON_BUNDLE_ID:-$KLT_BUNDLE}"
 NR="$(cd "$ROOT/$KLT_NATIVEROOT" && pwd)"
-MCV="${MCV:-26.2}"
+MCV="${MCV:-26.3}"
 if [ "$MCV" = 1.21.5 ]; then
   IREL=""
   CPFILE="${KL_NATIVE_CP:-$NR/t4.cp}"

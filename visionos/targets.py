@@ -6,7 +6,7 @@ facts. `make targets` writes `runtime/kl_target_table.h` from this file, so a
 build does not need to re-run Python if the header is already committed.
 
 This tree ships one target, vivecraft. The bundle id is `com.rebelancap.vivecraft-visionos`.
-`KLEPTON_BUNDLE_ID` overrides it. `MCV` defaults to 26.2.
+`KLEPTON_BUNDLE_ID` overrides it. `MCV` defaults to 26.3.
 """
 import os
 import sys
@@ -261,7 +261,7 @@ def resolve(name):
     # -Dorg.lwjgl.librarypath, built by work/natives/scripts/build-shaderc-spvc.sh. Keyed on the MCV env var that run.sh,
     # mknative.sh and stage_native.sh already share; unset / 1.x leaves the row exactly as written. libs/natives are
     # build-only, so `make targets` (the C table) is unaffected.
-    _mcv = os.environ.get("MCV") or "26.2"
+    _mcv = os.environ.get("MCV") or "26.3"
     if t.get("kind") == "native" and _mcv.startswith("26.") and t.get("natives"):
         _lv = os.environ.get("LWJGL_VER") or {"26.2": "3.4.1", "26.3": "3.4.3"}.get(_mcv)
         if not _lv:

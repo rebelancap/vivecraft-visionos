@@ -37,9 +37,9 @@
 # targets.py, so two apps built from this tree never write to the same place.
 set -euo pipefail
 cd "$(dirname "$0")"
-# 26.2 is the instance this tree builds. Export before targets.py so the
-# LWJGL natives for that MCV (26.2 = 3.4.1) are selected when the caller left MCV unset.
-export MCV="${MCV:-26.2}"
+# 26.3 is the instance this tree builds. Export before targets.py so the
+# LWJGL natives for that MCV (26.3 = 3.4.3) are selected when the caller left MCV unset.
+export MCV="${MCV:-26.3}"
 eval "$(python3 targets.py "${KLEPTON_TARGET:-}")"
 export KLEPTON_TARGET="$KLT_NAME"
 BUNDLE_ID="${KLEPTON_BUNDLE_ID:-$KLT_BUNDLE}"
@@ -93,7 +93,7 @@ stage_stamp() {   # <target-key>
   local apk="../$KLT_APK" sig=""
   [ -f "$apk" ] && sig=$(stat -f '%z-%m' "$apk" 2>/dev/null || true)
   # MCV (native vivecraft, stage_native.sh): another Minecraft instance is another stage; 1.21.5 keeps its old key.
-  [ "${MCV:-26.2}" != 1.21.5 ] && sig="$sig-mc$MCV"
+  [ "${MCV:-26.3}" != 1.21.5 ] && sig="$sig-mc$MCV"
   echo "$STAMP_DIR/$(echo "$KLT_NAME-$1-$BUNDLE_ID-$sig-v$STAGE_SCHEMA" \
        | tr -c 'A-Za-z0-9._-' '_')"
 }

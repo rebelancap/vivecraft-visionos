@@ -1,6 +1,6 @@
 # vivecraft-visionos
 
-Minecraft Java Edition 26.2 and Vivecraft VR, running natively on Apple Vision Pro.
+Minecraft Java Edition 26.3 and Vivecraft VR, running natively on Apple Vision Pro.
 
 ![Minecraft with Vivecraft on Apple Vision Pro](docs/screenshot.png)
 
@@ -67,7 +67,7 @@ Pair the gamepad in visionOS Settings → Bluetooth. Button names below are Dual
 
 The window keeps the game's shape while you play: drag a corner to resize it and it scales without black bars.
 
-Sense controllers and hand-tracking gestures drive Immersive VR. They do not drive the windowed game.
+A pair of PlayStation VR2 Sense controllers also works as one gamepad in the windowed game: Cross, Circle, Triangle and Square, the triggers, the grips (as L1/R1), the sticks and Options map like the DualSense buttons above. Hand-tracking gestures drive Immersive VR only.
 
 ## Controls
 
@@ -118,7 +118,7 @@ Walking follows your head. The app sets Vivecraft's free-move mode to HMD (VR Se
 
 The window before the game has three choices.
 
-**Account.** Add a Microsoft account, or pick Offline. Add account shows a code. Open the link on a phone or a computer and enter the code. The card you select is the one that launches, and it becomes the default. Each account has its own worlds.
+**Account.** Add a Microsoft account, or pick Offline. Add account shows a code. Open the link on a phone or a computer and enter the code. The card you select is the one that launches, and it becomes the default. Each account has its own worlds. The first launch on Minecraft 26.3 copies each account's 26.2 worlds, settings and servers over; the 26.2 copies stay as they were.
 
 An account that owns Java Edition is labeled Microsoft. An account that does not own it is labeled Offline and plays under that name. The Offline card plays on this device and does not join servers. Servers need a Microsoft account that owns the game.
 
@@ -154,19 +154,19 @@ These mods are compiled into the app. They are part of the native image, so they
 
 | Mod | Version | License | Upstream |
 | --- | --- | --- | --- |
-| Vivecraft | 26.2-1.3.15 | LGPLv3 | https://github.com/Vivecraft/VivecraftMod |
-| Sodium | 0.9.2+mc26.2 | Polyform Shield 1.0.0 | https://github.com/CaffeineMC/sodium |
-| Lithium | 0.25.3+mc26.2 | LGPL-3.0-only | https://github.com/CaffeineMC/lithium-fabric |
-| Fabric API | 0.161.0+26.2 | Apache-2.0 | https://github.com/FabricMC/fabric |
-| Simple Voice Chat | 2.6.24+26.2 | All Rights Reserved | https://github.com/henkelmax/simple-voice-chat |
-| Cloth Config | 26.2.155 | LGPLv3 | https://github.com/shedaniel/ClothConfig |
+| Vivecraft | 26.3-1.3.18 | LGPLv3 | https://github.com/Vivecraft/VivecraftMod |
+| Sodium | 0.9.2+mc26.3 | Polyform Shield 1.0.0 | https://github.com/CaffeineMC/sodium |
+| Lithium | 0.26.3+mc26.3 | LGPL-3.0-only | https://github.com/CaffeineMC/lithium-fabric |
+| Fabric API | 0.165.2+26.3 | Apache-2.0 | https://github.com/FabricMC/fabric |
+| Simple Voice Chat | 2.6.27+26.3 | All Rights Reserved | https://github.com/henkelmax/simple-voice-chat |
+| Cloth Config | 26.3.159 | LGPLv3 | https://github.com/shedaniel/ClothConfig |
 | Entity Culling | 1.11.3 | tr7zw Protective License | https://github.com/tr7zw/EntityCulling |
 | FerriteCore | 9.0.0 | MIT | https://github.com/malte0811/FerriteCore |
-| ImmediatelyFast | 1.16.5+26.2 | LGPL-3.0-or-later | https://github.com/RaphiMC/ImmediatelyFast |
-| Krypton | 0.3.1 | LGPL-3.0 | https://github.com/astei/krypton |
-| More Culling | 1.8.1 | GPL-3.0-only | https://github.com/fxmorin/moreculling |
+| ImmediatelyFast | 1.17.1+26.3 | LGPL-3.0-or-later | https://github.com/RaphiMC/ImmediatelyFast |
+| Krypton | 0.3.2 | LGPL-3.0 | https://github.com/astei/krypton |
+| More Culling | 1.9.1 | GPL-3.0-only | https://github.com/fxmorin/moreculling |
 | BadOptimizations | 2.4.1 | MIT | https://github.com/imthosea/BadOptimizations |
-| Better Biome Blend | 1.4.0 | LGPL-3.0 | https://github.com/FionaTheMortal/better-biome-blend |
+| Better Biome Blend | 1.4.1 | LGPL-3.0 | https://github.com/FionaTheMortal/better-biome-blend |
 
 Sodium 0.9.2 is Polyform Shield 1.0.0. The license text is [LICENSES/Polyform-Shield-1.0.0.md](LICENSES/Polyform-Shield-1.0.0.md), copied from the jar, and the same text ships in the IPA. The terms are also at https://polyformproject.org/licenses/shield/1.0.0.
 
@@ -210,5 +210,6 @@ Every other component, with its version and license, is in [THIRD-PARTY.md](THIR
 - **[Better Biome Blend](https://github.com/FionaTheMortal/better-biome-blend)**. LGPL-3.0.
 - **[ANGLE](https://chromium.googlesource.com/angle/angle)**. BSD-3-Clause. The GL implementation.
 - **[LWJGL](https://github.com/LWJGL/lwjgl3)**. BSD-3-Clause.
+- **[shaderc](https://github.com/google/shaderc)** (with [glslang](https://github.com/KhronosGroup/glslang), [SPIRV-Tools](https://github.com/KhronosGroup/SPIRV-Tools) and [SPIRV-Headers](https://github.com/KhronosGroup/SPIRV-Headers)) and **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)**. Minecraft 26.3's shader compiler, built for visionOS. Apache-2.0 and the notices in [THIRD-PARTY.md](THIRD-PARTY.md).
 - **[GraalVM](https://www.graalvm.org/)**. The native image is built with Oracle GraalVM under the [GraalVM Free Terms and Conditions](https://www.oracle.com/downloads/licenses/graal-free-license.html).
 - **[LTW](https://github.com/PojavLauncherTeam/ltw)** by the PojavLauncher team. LGPL-3.0. The Darwin port of that tiny GL wrapper is in this repo.

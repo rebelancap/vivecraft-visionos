@@ -15,7 +15,7 @@
 # payload into every .app. KL_BUNDLE_PAYLOAD=0 on device keeps the devicectl
 # stage (stage_native.sh) as the only copy.
 #
-# MCV is the same knob stage_native.sh uses. Unset, on vivecraft, means 26.2,
+# MCV is the same knob stage_native.sh uses. Unset, on vivecraft, means 26.3,
 # which is the image this IPA is built to launch.
 set -euo pipefail
 
@@ -31,8 +31,8 @@ fi
 
 cd "${PROJECT_DIR:?}"
 if [ -z "${MCV:-}" ] && [ "${KLEPTON_TARGET:-vivecraft}" = vivecraft ]; then
-  MCV=26.2
-  echo "bundle_payload: MCV unset, using 26.2"
+  MCV=26.3
+  echo "bundle_payload: MCV unset, using 26.3"
 fi
 export MCV
 export KLEPTON_TARGET="${KLEPTON_TARGET:-vivecraft}"

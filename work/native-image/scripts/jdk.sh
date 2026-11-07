@@ -4,7 +4,7 @@
 #   MCV=1.*             -> Oracle GraalVM for JDK 21.0.12+7.1   (1.21.5 + 1.21.11)
 # Both live in work/native-image/graalvm/ (PROVENANCE.md rows 1-2). Exports GJDK (21|25) for scripts that care.
 _W="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-case ${MCV:-26.2} in
+case ${MCV:-26.3} in
   1.*) GJDK=21; _G=$_W/graalvm/graalvm-jdk-21.0.12+7.1/Contents/Home;;
   *)   GJDK=25; _G=$_W/graalvm/graalvm-jdk-25.0.4+7.1/Contents/Home;;
 esac

@@ -122,11 +122,17 @@ for n, d in I.items():
 # Rule 7 (scan every jar's fabric.mod.json for untraced entrypoints) was removed with the public bake.
 # The default image does not add entrypoints beyond the trace and the manual list.
 # manual entries (kept by hand; see the reports that added them)
-MANUAL = json.load(open(S + '/reflect-extra-manual.json'))
+# "sinceMcv"/"untilMcv" (inclusive) bound an entry to the Minecraft versions whose classes it names (26.3: authlib 10 moved
+# yggdrasil.YggdrasilServicesKeyInfo$KeyData to services.MinecraftServicesKeyInfo$KeyData); the keys are not emitted.
+def mcv_key(v): return tuple(int(x) for x in v.split('.'))
+def mcv_ok(m):
+    return (('sinceMcv' not in m or mcv_key(MCV) >= mcv_key(m['sinceMcv'])) and
+            ('untilMcv' not in m or mcv_key(MCV) <= mcv_key(m['untilMcv'])))
+MANUAL = [m for m in json.load(open(S + '/reflect-extra-manual.json')) if mcv_ok(m)]
 for m in MANUAL:
     e = entry(m['name'].replace('.', '/'))
     for k, v in m.items():
-        if k == 'name': continue
+        if k in ('name', 'sinceMcv', 'untilMcv'): continue
         if isinstance(v, list):
             l = e.setdefault(k, [])
             for x in v:

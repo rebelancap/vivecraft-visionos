@@ -29,7 +29,16 @@
   "allDeclaredConstructors": true,
   "allDeclaredMethods": true,
   "allDeclaredFields": true,
-  "allRecordComponents": true
+  "allRecordComponents": true,
+  "untilMcv": "26.2"
+ },
+ {
+  "name": "com.mojang.authlib.services.MinecraftServicesKeyInfo$KeyData",
+  "allDeclaredConstructors": true,
+  "allDeclaredMethods": true,
+  "allDeclaredFields": true,
+  "allRecordComponents": true,
+  "sinceMcv": "26.3"
  },
  {
   "name": "net.minecraft.client.sounds.SoundManager",
@@ -48,5 +57,190 @@
    { "name": "KQUEUE" },
    { "name": "group" }
   ]
+ },
+ {
+  "name": "org.lwjgl.system.MemoryBackendUnsafe",
+  "methods": [ { "name": "<init>", "parameterTypes": [] } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.system.MemoryBackendUnsafeLegacy25",
+  "methods": [ { "name": "<init>", "parameterTypes": [] } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.system.MemoryBackendUnsafeLegacy22",
+  "methods": [ { "name": "<init>", "parameterTypes": [] } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.system.MemoryBackendUnsafeLegacy17",
+  "methods": [ { "name": "<init>", "parameterTypes": [] } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.system.MemoryBackendUnsafeLegacy9",
+  "methods": [ { "name": "<init>", "parameterTypes": [] } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.system.MemoryBackendUnsafeLegacy",
+  "methods": [ { "name": "<init>", "parameterTypes": [] } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceFeatures2",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "methods": [ { "name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"] }, { "name": "sType$Default", "parameterTypes": [] } ],
+  "fields": [ { "name": "PNEXT" }, { "name": "STYPE" } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceVulkan11Features",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "methods": [ { "name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"] }, { "name": "sType$Default", "parameterTypes": [] } ],
+  "fields": [ { "name": "PNEXT" }, { "name": "STYPE" } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceVulkan12Features",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "methods": [ { "name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"] }, { "name": "sType$Default", "parameterTypes": [] } ],
+  "fields": [ { "name": "PNEXT" }, { "name": "STYPE" } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceSynchronization2Features",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "methods": [ { "name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"] }, { "name": "sType$Default", "parameterTypes": [] } ],
+  "fields": [ { "name": "PNEXT" }, { "name": "STYPE" } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceDynamicRenderingFeatures",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "methods": [ { "name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"] }, { "name": "sType$Default", "parameterTypes": [] } ],
+  "fields": [ { "name": "PNEXT" }, { "name": "STYPE" } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "methods": [ { "name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"] }, { "name": "sType$Default", "parameterTypes": [] } ],
+  "fields": [ { "name": "PNEXT" }, { "name": "STYPE" } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDevicePortabilitySubsetFeaturesKHR",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "methods": [ { "name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"] }, { "name": "sType$Default", "parameterTypes": [] } ],
+  "fields": [ { "name": "PNEXT" }, { "name": "STYPE" } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceMultiDrawFeaturesEXT",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "methods": [ { "name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"] }, { "name": "sType$Default", "parameterTypes": [] } ],
+  "fields": [ { "name": "PNEXT" }, { "name": "STYPE" } ],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "fionathemortal.betterbiomeblend.fabric.BetterBiomeBlendFabric",
+  "methods": [{"name": "<init>", "parameterTypes": []}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "fionathemortal.betterbiomeblend.fabric.compat.sodium.SodiumConfigEntryPoint",
+  "methods": [{"name": "<init>", "parameterTypes": []}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "net.fabricmc.api.EnvType",
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceDynamicRenderingFeatures",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "fields": [{"name": "DYNAMICRENDERING"}, {"name": "PNEXT"}, {"name": "STYPE"}],
+  "methods": [{"name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"]}, {"name": "sType$Default", "parameterTypes": []}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceFeatures",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "fields": [{"name": "DRAWINDIRECTFIRSTINSTANCE"}, {"name": "FILLMODENONSOLID"}, {"name": "MULTIDRAWINDIRECT"}, {"name": "SAMPLERANISOTROPY"}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceFeatures2",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "fields": [{"name": "PNEXT"}, {"name": "STYPE"}],
+  "methods": [{"name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"]}, {"name": "sType$Default", "parameterTypes": []}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceMultiDrawFeaturesEXT",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "fields": [{"name": "MULTIDRAW"}, {"name": "PNEXT"}, {"name": "STYPE"}],
+  "methods": [{"name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"]}, {"name": "sType$Default", "parameterTypes": []}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDevicePortabilitySubsetFeaturesKHR",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "fields": [{"name": "PNEXT"}, {"name": "STYPE"}, {"name": "TRIANGLEFANS"}],
+  "methods": [{"name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"]}, {"name": "sType$Default", "parameterTypes": []}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceSynchronization2Features",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "fields": [{"name": "PNEXT"}, {"name": "STYPE"}, {"name": "SYNCHRONIZATION2"}],
+  "methods": [{"name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"]}, {"name": "sType$Default", "parameterTypes": []}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceVertexAttributeDivisorFeatures",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "fields": [{"name": "PNEXT"}, {"name": "STYPE"}, {"name": "VERTEXATTRIBUTEINSTANCERATEDIVISOR"}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "methods": [{"name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"]}, {"name": "sType$Default", "parameterTypes": []}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceVulkan11Features",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "fields": [{"name": "PNEXT"}, {"name": "SHADERDRAWPARAMETERS"}, {"name": "STYPE"}],
+  "methods": [{"name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"]}, {"name": "sType$Default", "parameterTypes": []}],
+  "sinceMcv": "26.3"
+ },
+ {
+  "name": "org.lwjgl.vulkan.VkPhysicalDeviceVulkan12Features",
+  "queryAllPublicMethods": true,
+  "allPublicFields": true,
+  "fields": [{"name": "HOSTQUERYRESET"}, {"name": "PNEXT"}, {"name": "STYPE"}, {"name": "TIMELINESEMAPHORE"}],
+  "methods": [{"name": "calloc", "parameterTypes": ["org.lwjgl.system.MemoryStack"]}, {"name": "sType$Default", "parameterTypes": []}],
+  "sinceMcv": "26.3"
  }
 ]

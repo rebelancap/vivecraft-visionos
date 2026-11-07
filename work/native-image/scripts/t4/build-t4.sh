@@ -77,6 +77,33 @@ grep -q -- "/lwjgl-$LV-unsafe.jar\$" $I/cp.lines && ! grep -q -- "/lwjgl-$LV.jar
   && ! grep -q "/lwjgl-glfw-$LV.jar\$" $I/cp.lines && ! grep -q "/lwjgl-sdl-$LV.jar\$" $I/cp.lines
 if ! grep -q lwjgl-glfw-klglfw $I/cp.lines; then echo "note: no lwjgl-glfw-$LV.jar on $I/baked.cp (26.3+: SDL3), klglfw not on t4.cp"; fi
 if grep -q lwjgl-sdl-klsdl $I/cp.lines; then echo "klsdl: lwjgl-sdl-$LV.jar -> $I/klsdl/lwjgl-sdl-klsdl-$LV.jar"; fi
+# 26.3: JOML 1.10.9 ships org/joml{,/experimental,/sampling}/package-info.class at class-file version 46. HotSpot only
+# accepts '-' in a class name from version 49 on, and native-image's package registration loads package-info
+# (Package.getPackageInfo -> "ClassFormatError: Illegal class name org/joml/package-info"). Any classpath jar with a
+# pre-49 package-info gets an APFS-cloned copy in $I/jarfix/ without those entries (annotation-only classes, never used).
+mkdir -p $I/jarfix
+python3 -I - $I/cp.lines $I/jarfix <<'PY'
+import os, shutil, struct, subprocess, sys, zipfile
+lines, out = sys.argv[1], sys.argv[2]
+cp = open(lines).read().split('\n'); res = []
+for j in cp:
+    bad = []
+    if j.endswith('.jar') and os.path.isfile(j):
+        with zipfile.ZipFile(j) as z:
+            for n in z.namelist():
+                if n.endswith('/package-info.class') and not n.startswith('META-INF/'):
+                    h = z.read(n)[:8]
+                    if len(h) == 8 and struct.unpack('>H', h[6:8])[0] < 49: bad.append(n)
+    if bad:
+        d = os.path.join(out, os.path.basename(j))
+        if os.path.exists(d): os.remove(d)
+        if subprocess.run(['cp', '-c', j, d], capture_output=True).returncode: shutil.copy(j, d)
+        subprocess.run(['zip', '-qd', d] + bad, check=True)
+        print(f'jarfix: {os.path.basename(j)} without {len(bad)} pre-49 package-info classes -> {d}')
+        j = d
+    res.append(j)
+open(lines, 'w').write('\n'.join(res))
+PY
 { echo -n "$I/baked/t4:"; paste -sd: $I/cp.lines; } > $I/t4.cp
 { echo "$I/baked/t4"; grep -v -E '/(jna|jna-platform|oshi-core|java-objc-bridge)-[0-9.]+\.jar$' $I/cp.lines; echo "$W/baked/t23-stubs"; } | paste -sd: - > $I/t4-ni.cp
 rm $I/cp.lines

@@ -5,8 +5,15 @@
 import json, sys
 I = json.load(open(sys.argv[1]))
 def MANUAL_CLASSES():
+    # entries bounded by "sinceMcv"/"untilMcv" (gen-reflect-extra.py) are checked only on the versions they apply to
     import os
-    return [e['name'].replace('.', '/') for e in json.load(open(os.path.dirname(os.path.abspath(__file__)) + '/../t8/reflect-extra-manual.json'))]
+    # version: $MCV, else what the index looks like (renderpearl = 26.3, Mojang names = 26.2, intermediary = 1.21)
+    mcv = os.environ.get('MCV') or ('26.3' if 'com/mojang/renderpearl/backend/opengl/GlBackend' in I else
+                                    '26.2' if not any(c.startswith('net/minecraft/class_') for c in I) else '1.21')
+    v = tuple(int(x) for x in mcv.split('.'))
+    k = lambda s: tuple(int(x) for x in s.split('.'))
+    return [e['name'].replace('.', '/') for e in json.load(open(os.path.dirname(os.path.abspath(__file__)) + '/../t8/reflect-extra-manual.json'))
+            if ('sinceMcv' not in e or v >= k(e['sinceMcv'])) and ('untilMcv' not in e or v <= k(e['untilMcv']))]
 # (class, member, descriptor or None=any, kind) kind: m=method f=field c=class-only
 T = [
  ('net/minecraft/class_6417', 'method_37461', ('(J)V', '(Lnet/minecraft/class_1041;)V'), 'm', 'Target_T3 MacosUtil.exitNativeFullscreen (long on 1.21.5, Window on 1.21.11: subst-1.21.11/Target_T3.java)'),

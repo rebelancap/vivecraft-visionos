@@ -1,0 +1,12 @@
+26.3 reachability config (2026-11-06, first 26.3 image)
+t23-trim/reachability-metadata.json = inst-26.2's traced file (no 26.3 agent trace exists yet) with 11 types renamed to
+  their 26.3 names: com.mojang.blaze3d.textures.FilterMode -> com.mojang.renderpearl.api.textures.FilterMode;
+  lithium.mixin.LithiumMixinPlugin -> lithium.common.LithiumMixinPlugin; Sodium VertexSerializer$Impl$000A$0008 ->
+  $000C$000A; monster.EnderMan -> monster.Enderman; authlib yggdrasil.{ToggleValue, YggdrasilServicesKeyInfo$KeyData,
+  $KeySetResponse, request.UserAttributesRequest(+2 inner), response.ErrorResponse} -> authlib 10's
+  services.{ToggleValue, MinecraftServicesKeyInfo$..., request..., response.ErrorResponse}.
+  13 entries still name no 26.3 class (probes: optifine, quilt, osgi, jackson, nightconfig formats, servlet,
+  AppleProvider, old me.jellysquid Sodium names); native-image ignores them.
+t23-extra/resource-config.json = inst-26.2's (version-independent patterns).
+t23-extra/reflect-config.json  = MCV=26.3 python3 -I scripts/t8/gen-reflect-extra.py (derived; reflect-extra-manual.json
+  entries bounded by sinceMcv/untilMcv: authlib KeyData retargeted, LWJGL 3.4.3 memory backends added).

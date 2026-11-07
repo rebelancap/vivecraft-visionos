@@ -1,7 +1,10 @@
 #!/bin/bash
 # build-lwjgl341-natives.sh [macosx|xrsimulator|xros ...]   (default: macosx)
-#   -> work/natives/build/lwjgl-3.4.1/<platform>/{liblwjgl,liblwjgl_opengl,liblwjgl_stb[,liblwjgl_tinyfd],libopenal}.dylib
+#   -> work/natives/build/lwjgl-<ver>/<platform>/{liblwjgl,liblwjgl_opengl,liblwjgl_stb[,liblwjgl_tinyfd],libopenal}.dylib
 #      + BUILT-lwjgl-<platform> one level up when verified (READY-<platform> comes from build-klglfw341.sh).
+# <ver> = LWJGL_VER, else by MCV (work/natives/scripts/lwjgl-ver.sh: 26.2 -> 3.4.1, 26.3 -> 3.4.3); the "341" in the
+# file name is historical. The notes below were written for 3.4.1 / 26.2; 3.4.3 differs in: libffi 3.8.0 (bundled ffi.h
+# + ffi_call_plan_*), FreeType 2.14.3, and Minecraft 26.3 loads SDL3 instead of GLFW and no longer loads tinyfd.
 # STOCK LWJGL 3.4.1 (tag 3.4.1 = b800ccff, work/natives/downloads/lwjgl3-3.4.1; fetch: work/natives/scripts/fetch-lwjgl341.sh)
 # for Minecraft 26.2 ONLY. 1.21.5 / 1.21.11 keep the QuestCraft fork f1ec2b7 (build-fork-natives*.sh, unchanged).
 # Mirrors LWJGL's own config/macos/build.xml (core / opengl / stb / tinyfd rules) with plain clang, same as the fork
@@ -21,12 +24,15 @@ if ! [ "$JOBS" -ge 1 ] 2>/dev/null; then echo "JOBS must be a positive integer" 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 N="$ROOT/work/natives"
 W="$ROOT/work/native-image"
-L=$N/downloads/lwjgl3-3.4.1/modules/lwjgl
-MV=$N/downloads/lwjgl-3.4.1-maven
+. "$N/scripts/lwjgl-ver.sh"
+V=$LWJGL_VER
+L=$LWJGL_SRC/modules/lwjgl
+MV=$LWJGL_MV
 G=${G:-$W/graalvm/graalvm-jdk-25.0.4+7.1/Contents/Home}
-FFI=$W/dl/libffi/libffi-3.5.2.tar.gz
-OUT=$N/build/lwjgl-3.4.1
-[ "$(git -C $N/downloads/lwjgl3-3.4.1 rev-parse HEAD)" = b800ccffab14396fc529ddb6c931b7c5c5226763 ] || { echo "run fetch-lwjgl341.sh"; exit 1; }
+FFI=$W/dl/libffi/libffi-$FFI_VER.tar.gz
+OUT=$LWJGL_OUT
+[ "$(git -C $LWJGL_SRC rev-parse HEAD 2>/dev/null)" = $LWJGL_COMMIT ] || { echo "run LWJGL_VER=$V fetch-lwjgl341.sh"; exit 1; }
+echo "$FFI_SHA256  $FFI" | shasum -a 256 -c - >/dev/null || { echo "libffi $FFI_VER tarball missing/bad: run LWJGL_VER=$V fetch-lwjgl341.sh"; exit 1; }
 
 build_one() {
   local P=$1 TGT SDK O B CC
@@ -44,15 +50,16 @@ build_one() {
   if [ $P != macosx ]; then mkdir -p $B/shim/objc; printf '#include <objc/runtime.h>\n#include <objc/message.h>\n' > $B/shim/objc/objc-runtime.h; CF="$CF -I$B/shim"; fi
   local LF="-dynamiclib -Wl,-no_compact_unwind -target $TGT -isysroot $SDK -O3"
   echo "== $P ($TGT)"
-  # libffi 3.5.2 static (Darwin configure => FFI_EXEC_TRAMPOLINE_TABLE 1: no mmap/MAP_JIT, vm_remap trampolines)
+  # libffi $FFI_VER static (Darwin configure => FFI_EXEC_TRAMPOLINE_TABLE 1: no mmap/MAP_JIT, vm_remap trampolines)
   local FO=$OUT/libffi-$P
-  if [ ! -f $FO/lib/libffi.a ]; then
+  if [ ! -f $FO/lib/libffi.a ] || ! grep -q "^$FFI_VER\$" $FO/VERSION 2>/dev/null; then
+    rm -rf $FO
     rm -rf $B/libffi-src; mkdir -p $B/libffi-src; tar -xzf $FFI -C $B/libffi-src
-    ( cd $B/libffi-src/libffi-3.5.2 && CC="$CC -target $TGT -isysroot $SDK" CFLAGS="-O3 -fPIC" \
+    ( cd $B/libffi-src/libffi-$FFI_VER && CC="$CC -target $TGT -isysroot $SDK" CFLAGS="-O3 -fPIC" \
         ./configure --build=aarch64-apple-darwin$(uname -r | cut -d. -f1) --host=aarch64-apple-darwin \
         --prefix=$FO --disable-shared --enable-static --disable-docs --disable-multi-os-directory >$B/libffi-configure.log 2>&1 \
       && make -j"$JOBS" >$B/libffi-make.log 2>&1 && make install >>$B/libffi-make.log 2>&1 \
-      && cp aarch64-apple-darwin/fficonfig.h $FO/ ) || { echo "libffi failed ($B/libffi-*.log)"; exit 1; }
+      && cp aarch64-apple-darwin/fficonfig.h $FO/ && echo $FFI_VER > $FO/VERSION ) || { echo "libffi failed ($B/libffi-*.log)"; exit 1; }
   fi
   grep -q 'FFI_EXEC_TRAMPOLINE_TABLE 1' $FO/fficonfig.h || { echo "libffi: no trampoline table"; exit 1; }
   cc1() { # cc1 <objdir> <flags...> -- files
@@ -73,7 +80,7 @@ build_one() {
     [ "$failed" -eq 0 ] && [ "$(ls "$d"/*.o 2>/dev/null | wc -l)" -eq "$#" ] \
       || { echo "compile failed in $d (see $B/cc.log)"; return 1; }
   }
-  # core: LWJGL's bundled ffi.h + aarch64/ffitarget.h (trampoline table on Apple), static libffi 3.5.2
+  # core: LWJGL's bundled ffi.h + aarch64/ffitarget.h (trampoline table on Apple), static libffi $FFI_VER
   cc1 $B/core -Wall -Wno-unused-parameter -I$L/core/src/main/c/libffi -I$L/core/src/main/c/libffi/aarch64 -- \
       $L/core/src/main/c/*.c $L/core/src/generated/c/*.c $L/core/src/generated/c/macos/*.c
   $CC $LF -install_name @rpath/liblwjgl.dylib -o $O/liblwjgl.dylib $B/core/*.o $FO/lib/libffi.a -framework CoreFoundation
@@ -86,13 +93,15 @@ build_one() {
   cc1 $B/tinyfd -I$L/tinyfd/src/main/c -- $L/tinyfd/src/main/c/tinyfiledialogs.c $L/tinyfd/src/generated/c/*.c
   $CC $LF -install_name @rpath/liblwjgl_tinyfd.dylib -o $O/liblwjgl_tinyfd.dylib $B/tinyfd/*.o
   if [ $P = macosx ]; then
-    # third-party libs LWJGL itself does not build from this repo: stock 3.4.1 Maven macos-arm64 binaries
-    unzip -qjo $MV/lwjgl-openal-3.4.1-natives-macos-arm64.jar 'macos/arm64/org/lwjgl/openal/libopenal.dylib' -d $O
-    unzip -qjo $MV/lwjgl-jemalloc-3.4.1-natives-macos-arm64.jar 'macos/arm64/org/lwjgl/jemalloc/libjemalloc.dylib' -d $O
-    unzip -qjo $MV/lwjgl-freetype-3.4.1-natives-macos-arm64.jar 'macos/arm64/org/lwjgl/freetype/libfreetype.dylib' -d $O
+    # third-party libs LWJGL itself does not build from this repo: stock $V Maven macos-arm64 binaries
+    unzip -qjo $MV/lwjgl-openal-$V-natives-macos-arm64.jar 'macos/arm64/org/lwjgl/openal/libopenal.dylib' -d $O
+    unzip -qjo $MV/lwjgl-jemalloc-$V-natives-macos-arm64.jar 'macos/arm64/org/lwjgl/jemalloc/libjemalloc.dylib' -d $O
+    unzip -qjo $MV/lwjgl-freetype-$V-natives-macos-arm64.jar 'macos/arm64/org/lwjgl/freetype/libfreetype.dylib' -d $O
+    # 26.3+ (lwjgl-sdl): Minecraft's window/input layer is SDL3; stock Maven libSDL3 for the host JVM only
+    [ -f $MV/lwjgl-sdl-$V-natives-macos-arm64.jar ] && unzip -qjo $MV/lwjgl-sdl-$V-natives-macos-arm64.jar 'macos/arm64/org/lwjgl/sdl/libSDL3.dylib' -d $O
   else
     cp $N/openal/$P/libopenal.dylib $O/   # OpenAL Soft 1.25.2 (scripts/build-openal.sh)
-    "$(dirname "$0")/build-freetype.sh" $P  # FreeType 2.14.1 (26.2 loads it eagerly; fatal if missing)
+    LWJGL_VER=$V "$(dirname "$0")/build-freetype.sh" $P  # FreeType $FT_TAG (26.x loads it eagerly; fatal if missing)
   fi
   strip -x $O/liblwjgl*.dylib
   if [ $P = xrsimulator ]; then codesign -f -s - $O/*.dylib 2>/dev/null; fi
@@ -101,15 +110,15 @@ build_one() {
   echo "BUILT-lwjgl-$P (READY-$P is written by build-klglfw341.sh once klglfw is in place too)"
 }
 
-# verify: platform load command, JNI export sets equal to stock 3.4.1 macOS natives (from Maven), no JIT-ish imports
+# verify: platform load command, JNI export sets equal to stock $V macOS natives (from Maven), no JIT-ish imports
 verify() {
   local P=$1 O=$2 want plat
   case $P in macosx) want=1;; xros) want=11;; xrsimulator) want=12;; esac
   local S=$OUT/obj-$P/stock; mkdir -p $S
-  unzip -qjo $MV/lwjgl-3.4.1-natives-macos-arm64.jar 'macos/arm64/org/lwjgl/liblwjgl.dylib' -d $S
-  unzip -qjo $MV/lwjgl-opengl-3.4.1-natives-macos-arm64.jar '*.dylib' -d $S
-  unzip -qjo $MV/lwjgl-stb-3.4.1-natives-macos-arm64.jar '*.dylib' -d $S
-  unzip -qjo $MV/lwjgl-tinyfd-3.4.1-natives-macos-arm64.jar '*.dylib' -d $S
+  unzip -qjo $MV/lwjgl-$V-natives-macos-arm64.jar 'macos/arm64/org/lwjgl/liblwjgl.dylib' -d $S
+  unzip -qjo $MV/lwjgl-opengl-$V-natives-macos-arm64.jar '*.dylib' -d $S
+  unzip -qjo $MV/lwjgl-stb-$V-natives-macos-arm64.jar '*.dylib' -d $S
+  unzip -qjo $MV/lwjgl-tinyfd-$V-natives-macos-arm64.jar '*.dylib' -d $S
   for f in $O/liblwjgl*.dylib; do
     plat=$(otool -l $f | awk '/LC_BUILD_VERSION/{b=1} b&&/platform/{print $2; exit}')
     [ "$plat" = $want ] || { echo "verify: $f platform $plat != $want"; exit 1; }

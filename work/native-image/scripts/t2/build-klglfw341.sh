@@ -1,7 +1,10 @@
 #!/bin/bash
 # build-klglfw341.sh [macosx|xrsimulator|xros ...]  (default: all three)
-# klglfw (the GLFW stand-in) for Minecraft 26.x / stock LWJGL 3.4.1. Outputs (work/natives/build/lwjgl-3.4.1/):
-#   klglfw/lwjgl-glfw-klglfw-3.4.1.jar  stock lwjgl-glfw-3.4.1 struct + callback classes (no GLFW, GLFW$Functions,
+# klglfw (the GLFW stand-in) for Minecraft 26.x / stock LWJGL <ver> (work/natives/scripts/lwjgl-ver.sh: LWJGL_VER, else
+# MCV 26.2 -> 3.4.1, 26.3 -> 3.4.3; "341" in the name is historical). NOTE: Minecraft 26.3 replaced GLFW with SDL3
+# (lwjgl-sdl; the client references no org/lwjgl/glfw member), so for 26.3 this jar only matters to mods that still call
+# GLFW. Outputs (work/natives/build/lwjgl-<ver>/):
+#   klglfw/lwjgl-glfw-klglfw-<ver>.jar  stock lwjgl-glfw-<ver> struct + callback classes (no GLFW, GLFW$Functions,
 #                                       Callbacks, EventLoop, GLFWNative*, GLFWVulkan, native sha1s)
 #                                       + the stand-in: scripts/t4-src/java/org/lwjgl/glfw/*.java with the
 #                                       /*#LWJGL341 ... #LWJGL341*/ block of GLFW.java switched ON
@@ -10,23 +13,28 @@
 #   READY-<platform>                    once BUILT-lwjgl-<platform> (build-lwjgl341-natives.sh) + jar + libklglfw exist
 # 1.21.x is untouched: scripts/t4/build-t4.sh compiles the same GLFW.java against the QC 3.3.3 fork with the block
 # still a comment, and t8b/build-natives.sh keeps building the same klglfw.c into out/t8b.
-# Coverage gate: glfwcover.py checks every org/lwjgl/glfw member the 26.2 classpath references (glfwrefs-26.2.txt,
-# regenerated from work/native-image/inst-26.2 when present) resolves in the jar.
+# Coverage gate: glfwcover.py checks every org/lwjgl/glfw member the <mcv> classpath references (glfwrefs-<mcv>.txt,
+# regenerated from work/native-image/inst-<mcv> when present: the baked layout vanilla/ + fgamedir/mods, else the
+# fetch-inst.py layout files/) resolves in the jar. <mcv> = MCV, else the Minecraft version of LWJGL_VER.
 set -e
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 W="$ROOT/work/native-image"
 N="$ROOT/work/natives"
 G=${G:-$W/graalvm/graalvm-jdk-25.0.4+7.1/Contents/Home}
-MV=$N/downloads/lwjgl-3.4.1-maven
+. "$N/scripts/lwjgl-ver.sh"
+V=$LWJGL_VER
+case ${MCV:-} in '') case $V in 3.4.1) MCV=26.2;; 3.4.3) MCV=26.3;; esac;; esac
+MV=$LWJGL_MV
 S=$W/scripts/t4-src
 T2=$W/scripts/t2
-OUT=$N/build/lwjgl-3.4.1
+OUT=$LWJGL_OUT
+KJ=lwjgl-glfw-klglfw-$V.jar
 B=$OUT/obj-klglfw; K=$OUT/klglfw
 ANGLE_INC=${ANGLE_INC:-$ROOT/vendor/include}
 rm -rf $B; mkdir -p $B/src/org/lwjgl/glfw $B/anno/javax/annotation $B/classes $B/anno-classes $K
 
 # --- Java stand-in -------------------------------------------------------------------------------------------------
-unzip -qo $MV/lwjgl-glfw-3.4.1.jar 'org/lwjgl/glfw/*' -d $B/classes
+unzip -qo $MV/lwjgl-glfw-$V.jar 'org/lwjgl/glfw/*' -d $B/classes
 ( cd $B/classes/org/lwjgl/glfw && rm -f GLFW.class 'GLFW$Functions.class' Callbacks.class EventLoop*.class GLFWNative*.class GLFWVulkan*.class )
 cp $S/java/org/lwjgl/glfw/*.java $S/java-341/org/lwjgl/glfw/*.java $B/src/org/lwjgl/glfw/
 grep -q '^    /\*#LWJGL341$' $B/src/org/lwjgl/glfw/GLFW.java && grep -q '^    #LWJGL341\*/$' $B/src/org/lwjgl/glfw/GLFW.java
@@ -35,34 +43,42 @@ sed -i '' -e '/^    \/\*#LWJGL341$/d' -e '/^    #LWJGL341\*\/$/d' $B/src/org/lwj
 # never needed at run time, not put in the jar.
 for a in Nullable Nonnull; do printf 'package javax.annotation;\npublic @interface %s { }\n' $a > $B/anno/javax/annotation/$a.java; done
 $G/bin/javac -nowarn -d $B/anno-classes $B/anno/javax/annotation/*.java
-$G/bin/javac -nowarn --release 21 -d $B/classes -cp "$MV/lwjgl-3.4.1-unsafe.jar:$MV/lwjgl-vulkan-3.4.1.jar:$B/classes:$B/anno-classes" \
+$G/bin/javac -nowarn --release 21 -d $B/classes -cp "$MV/lwjgl-$V-unsafe.jar:$MV/lwjgl-vulkan-$V.jar:$B/classes:$B/anno-classes" \
   $B/src/org/lwjgl/glfw/*.java
-rm -f $K/lwjgl-glfw-klglfw-3.4.1.jar
-( cd $B/classes && zip -qr -X $K/lwjgl-glfw-klglfw-3.4.1.jar org )
-echo "jar: $K/lwjgl-glfw-klglfw-3.4.1.jar ($(unzip -l $K/lwjgl-glfw-klglfw-3.4.1.jar | tail -1 | awk '{print $2}') entries)"
+rm -f $K/$KJ
+( cd $B/classes && zip -qr -X $K/$KJ org )
+echo "jar: $K/$KJ ($(unzip -l $K/$KJ | tail -1 | awk '{print $2}') entries)"
 
-# --- coverage against the 26.2 classpath -------------------------------------------------------------------------
-I=$W/inst-26.2
-if [ -f $I/vanilla/client-26.2.jar ] && [ -d $I/fgamedir/mods ]; then
-  python3 -I - "$I" "$B/refs" <<'PY'
+# --- coverage against the $MCV classpath --------------------------------------------------------------------------
+I=$W/inst-$MCV
+REFS=$T2/glfwrefs-$MCV.txt
+if { [ -f $I/vanilla/client-$MCV.jar ] && [ -d $I/fgamedir/mods ]; } || { [ -f $I/files/versions/$MCV/client.jar ] && [ -d $I/files/mods ]; }; then
+  python3 -I - "$I" "$B/refs" "$MCV" <<'PY'
 import zipfile, os, sys, io
-I, S = sys.argv[1], sys.argv[2]; os.makedirs(S + '/nested', exist_ok=True)
-cp = [I + '/vanilla/client-26.2.jar']
+I, S, V = sys.argv[1], sys.argv[2], sys.argv[3]; os.makedirs(S + '/nested', exist_ok=True)
+baked = os.path.isfile(f'{I}/vanilla/client-{V}.jar') and os.path.isdir(f'{I}/fgamedir/mods')
+cp = [f'{I}/vanilla/client-{V}.jar' if baked else f'{I}/files/versions/{V}/client.jar']
+M = f'{I}/fgamedir/mods' if baked else f'{I}/files/mods'
 def walk(path, data=None):
     z = zipfile.ZipFile(io.BytesIO(data) if data else path)
     for n in z.namelist():
         if n.startswith('META-INF/jars/') and n.endswith('.jar'):
             b = z.read(n); out = os.path.join(S, 'nested', os.path.basename(n)); open(out, 'wb').write(b); cp.append(out); walk(None, b)
-for m in sorted(os.listdir(I + '/fgamedir/mods')):
-    if m.endswith('.jar'): p = I + '/fgamedir/mods/' + m; cp.append(p); walk(p)
-for l in open(I + '/vanilla.cp').read().strip().split(':'):
+for m in sorted(os.listdir(M)):
+    if m.endswith('.jar'): p = M + '/' + m; cp.append(p); walk(p)
+if baked:
+    libs = open(I + '/vanilla.cp').read().strip().split(':')
+else:
+    libs = [f'{I}/files/' + l.strip() for t in ('vanilla', 'fabric') for l in open(f'{I}/files/versions/{V}/libs-{t}.txt') if l.strip()]
+for l in libs:
     if 'lwjgl' not in os.path.basename(l) and l not in cp: cp.append(l)
 open(S + '/refs.cp', 'w').write(':'.join(cp))
 PY
-  python3 -I $W/scripts/t4/glfwrefs.py $B/refs/refs.cp | sed "s#$B/refs/nested/##; s#$I/##" > $T2/glfwrefs-26.2.txt
-  echo "glfwrefs-26.2.txt regenerated from $I ($(wc -l < $T2/glfwrefs-26.2.txt) refs)"
+  python3 -I $W/scripts/t4/glfwrefs.py $B/refs/refs.cp | sed "s#$B/refs/nested/##; s#$I/##" > $REFS
+  echo "$(basename $REFS) regenerated from $I ($(wc -l < $REFS) refs)"
 fi
-python3 -I $T2/glfwcover.py $T2/glfwrefs-26.2.txt $K/lwjgl-glfw-klglfw-3.4.1.jar $MV/lwjgl-3.4.1-unsafe.jar $MV/lwjgl-vulkan-3.4.1.jar
+[ -f $REFS ] || { echo "no $REFS and no inst-$MCV to regenerate it from (run scripts/m3a/fetch-inst.py $MCV)"; exit 1; }
+python3 -I $T2/glfwcover.py $REFS $K/$KJ $MV/lwjgl-$V-unsafe.jar $MV/lwjgl-vulkan-$V.jar
 
 # --- libklglfw per platform -----------------------------------------------------------------------------------------
 CF="-O2 -g -Wall -Wextra -Wno-unused-parameter -fvisibility=hidden -I$G/include -I$G/include/darwin -I$ANGLE_INC"
@@ -74,7 +90,7 @@ for P in ${*:-macosx xrsimulator xros}; do
   rm -rf $OUT/$P/libklglfw.dylib.dSYM
   if [ $P = xrsimulator ]; then codesign -f -s - $OUT/$P/libklglfw.dylib 2>/dev/null; fi
   echo "libklglfw $P: $(xcrun vtool -show-build $OUT/$P/libklglfw.dylib | awk '/platform/{print $2}') $(stat -f%z $OUT/$P/libklglfw.dylib) B"
-  if [ -f $OUT/BUILT-lwjgl-$P ] && [ -f $OUT/$P/liblwjgl.dylib ] && [ -f $K/lwjgl-glfw-klglfw-3.4.1.jar ]; then
+  if [ -f $OUT/BUILT-lwjgl-$P ] && [ -f $OUT/$P/liblwjgl.dylib ] && [ -f $K/$KJ ]; then
     date '+%Y-%m-%d %H:%M:%S %Z' > $OUT/READY-$P; echo "READY-$P"
   else
     echo "NOT READY-$P (need BUILT-lwjgl-$P, liblwjgl.dylib and the klglfw jar)"

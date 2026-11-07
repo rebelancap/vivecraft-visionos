@@ -4,7 +4,10 @@
 #   MCV=<other>          -> I=$W/inst-$MCV (same sub-layout; fetched by scripts/m3a/fetch-inst.py)
 # Shared by every instance: graalvm/, dl/lwjgl, lwjgl-fork/ (QC LWJGL 3.3.3 fork + natives), lwjgl-fork-t4/ (klglfw),
 # bakeagent/, baked/launcher sources, baked/t23-stubs, out/t23/natives.
-# Exports: W G GJDK MCV I AIDX ASSETS FLV REMAPPED (the game jar Knot/BakedLauncher run) GAMENS SUBST_SKIP.
+# Exports: W G GJDK MCV I AIDX ASSETS FLV REMAPPED (the game jar Knot/BakedLauncher run) GAMENS SUBST_SKIP SUBSTV.
+# SUBSTV = the suffix of the per-version source dirs (t4-src/subst-, subst-fabric-src-, spikef-src-): $MCV when
+# t4-src/subst-$MCV exists, else a 26.x instance without its own set borrows 26.2's (logged; check-subst.py then says
+# what no longer resolves). LWJGL natives per MCV: work/natives/scripts/lwjgl-ver.sh.
 # <repo>/work/native-image/scripts/inst.sh
 _INST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 W="$(cd "$_INST_DIR/.." && pwd)"
@@ -28,7 +31,10 @@ fi
 case $MCV in 1.21.5) SUBST_SKIP="";; 1.*) SUBST_SKIP="Target_SvcPttBinding.java";;
   *) SUBST_SKIP="Target_SvcPttBinding.java
 Target_T4.java";; esac
-[ -d $W/scripts/t4-src/subst-$MCV ] && for f in $W/scripts/t4-src/subst-$MCV/*.java; do SUBST_SKIP="$SUBST_SKIP
+SUBSTV=$MCV
+if [ ! -d $W/scripts/t4-src/subst-$MCV ]; then case $MCV in 26.2) ;; 26.*) SUBSTV=26.2
+  echo "inst.sh: no scripts/t4-src/subst-$MCV; using the 26.2 per-version sources (SUBSTV=26.2)" >&2;; esac; fi
+[ -d $W/scripts/t4-src/subst-$SUBSTV ] && for f in $W/scripts/t4-src/subst-$SUBSTV/*.java; do SUBST_SKIP="$SUBST_SKIP
 $(basename $f)"; done
 # Game jar + its namespace. 1.21.x: Knot's intermediary-remapped jar. 26.x is unobfuscated (Fabric intermediary 26.2 =
 # 0.0.0, no mappings on the classpath -> runtime namespace "official" = Mojang names): Knot remaps nothing and the game

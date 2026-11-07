@@ -251,14 +251,20 @@ def resolve(name):
         sys.exit(1)
     t = dict(TARGETS[name])
     t["name"] = name
-    # Minecraft 26.x on the native row (M3C): the same libraries by name, but LWJGL 3.4.1's natives (core/opengl/stb,
-    # plus tinyfd and FreeType, which 26.2's NativeLibrariesBootstrap loads eagerly and fatally) and the 3.4.1 klglfw
-    # come from work/natives/build/lwjgl-3.4.1/{sdk}/ (USAGE.md there). Keyed on the MCV env var that run.sh,
+    # Minecraft 26.x on the native row (M3C): the same libraries by name, but stock LWJGL's natives (core/opengl/stb,
+    # plus tinyfd and FreeType, which 26.2's NativeLibrariesBootstrap loads eagerly and fatally) and klglfw come from
+    # work/natives/build/lwjgl-<v>/{sdk}/ (USAGE.md there), <v> per MCV as work/natives/scripts/lwjgl-ver.sh
+    # (26.2 = 3.4.1, 26.3 = 3.4.3; LWJGL_VER overrides). 26.3 loads SDL3 instead of GLFW and no longer loads tinyfd:
+    # no visionOS libSDL3 is built yet, so a 26.3 row is incomplete. Keyed on the MCV env var that run.sh,
     # mknative.sh and stage_native.sh already share; unset / 1.x leaves the row exactly as written. libs/natives are
     # build-only, so `make targets` (the C table) is unaffected.
     _mcv = os.environ.get("MCV") or "26.2"
     if t.get("kind") == "native" and _mcv.startswith("26.") and t.get("natives"):
-        _l341 = "work/natives/build/lwjgl-3.4.1/{sdk}/"
+        _lv = os.environ.get("LWJGL_VER") or {"26.2": "3.4.1", "26.3": "3.4.3"}.get(_mcv)
+        if not _lv:
+            print(f"!! no LWJGL pin for MCV={_mcv} (work/natives/scripts/lwjgl-ver.sh; set LWJGL_VER)", file=sys.stderr)
+            sys.exit(1)
+        _l341 = f"work/natives/build/lwjgl-{_lv}/{{sdk}}/"
         _swap = {n: _l341 + n + ".dylib" for n in
                  ("liblwjgl", "liblwjgl_opengl", "liblwjgl_stb", "libopenal", "libklglfw",
                   "liblwjgl_tinyfd", "libfreetype")}

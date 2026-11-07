@@ -32,6 +32,12 @@
 /work/native-image/inst-26.2/config/*
 !/work/native-image/inst-26.2/config/t23-trim/
 !/work/native-image/inst-26.2/config/t23-extra/
+/work/native-image/inst-26.3/*
+!/work/native-image/inst-26.3/asset-index-id.txt
+!/work/native-image/inst-26.3/config/
+/work/native-image/inst-26.3/config/*
+!/work/native-image/inst-26.3/config/t23-trim/
+!/work/native-image/inst-26.3/config/t23-extra/
 
 # Natives: scripts and provenance stay. Built dylibs do not.
 # These build dirs are symlinks. Patterns without a trailing slash match the link.
@@ -73,3 +79,7 @@ msa-refresh.json
 /work/native-image/bakeagent/
 /work/native-image/baked/
 /work/native-image/lwjgl-fork-t4/
+/work/vivecraft-openxr-26.3/VivecraftMod/
+/work/vivecraft-openxr-26.3/gradle-home/
+/work/vivecraft-openxr-26.3/*.log
+/work/native-image/graalvm

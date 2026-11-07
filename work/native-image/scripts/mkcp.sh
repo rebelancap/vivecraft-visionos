@@ -1,7 +1,8 @@
 #!/bin/bash
 # Build flat vanilla classpath for macOS arm64 -> $I/vanilla.cp   (MCV=<version>: instance, see scripts/inst.sh)
 #   1.21.5: copied from the Klepton userdata instance (original behaviour). Other versions: from $I/files
-#   (scripts/m3a/fetch-inst.py). Stock LWJGL 3.3.3 from dl/lwjgl for 1.21.x; 26.x: LWJGL 3.4.1 from the version json.
+#   (scripts/m3a/fetch-inst.py). Stock LWJGL 3.3.3 from dl/lwjgl for 1.21.x; 26.x: LWJGL from the version json
+#   (26.2 = 3.4.1, 26.3 = 3.4.3).
 set -e
 . "$(dirname "$0")/inst.sh"
 mkdir -p $I/vanilla/lib $I/gamedir
@@ -17,10 +18,18 @@ else
 fi
 case $MCV in
   1.*) cp -n $W/dl/lwjgl/*.jar $I/vanilla/lib/ || true;;
-  *)   # 26.x: LWJGL 3.4.1 from the version json (fetch-inst.py libs-lwjgl.txt: java jars, :unsafe core,
+  *)   # 26.x: LWJGL from the version json (fetch-inst.py libs-lwjgl.txt: java jars, :unsafe core,
        # natives-macos-arm64) for the Knot/bake run on stock GLFW + Apple GL. The client jar is SIGNED (MOJANGCS):
        # strip the signature so the bake overlay's classes can share its packages on the baked classpath.
        while read l; do cp -n "$V/$l" $I/vanilla/lib/ || true; done < $V/versions/$MCV/libs-lwjgl.txt
+       # 26.3's json names the PLAIN core (lwjgl-3.4.3.jar: JNI/Upcalls go through FFM on Java 25, META-INF/versions/25).
+       # The port's contract is the JNI :unsafe core (same natives, as 26.2 shipped): swap in the Maven -unsafe jar
+       # that work/natives/scripts/fetch-lwjgl341.sh fetched.
+       . "$ROOT/work/natives/scripts/lwjgl-ver.sh"
+       if [ -f $I/vanilla/lib/lwjgl-$LWJGL_VER.jar ] && [ ! -f $I/vanilla/lib/lwjgl-$LWJGL_VER-unsafe.jar ]; then
+         [ -f $LWJGL_MV/lwjgl-$LWJGL_VER-unsafe.jar ] || { echo "mkcp: need $LWJGL_MV/lwjgl-$LWJGL_VER-unsafe.jar (fetch-lwjgl341.sh)"; exit 1; }
+         cp $LWJGL_MV/lwjgl-$LWJGL_VER-unsafe.jar $I/vanilla/lib/ && rm $I/vanilla/lib/lwjgl-$LWJGL_VER.jar
+       fi
        zip -q -d $I/vanilla/client-$MCV.jar 'META-INF/MOJANGCS.SF' 'META-INF/MOJANGCS.RSA' >/dev/null 2>&1 || true;;
 esac
 { echo -n $I/vanilla/client-$MCV.jar; for j in $I/vanilla/lib/*.jar; do echo -n ":$j"; done; } > $I/vanilla.cp

@@ -51,21 +51,25 @@ grep -q lwjgl-glfw-t4.jar $I/t4.cp && grep -q lwjgl-glfw-t4.jar $I/t4-ni.cp && !
 ;;
 *)
 # 26.x (M3 stage C): no QC fork, no t23 step. Straight from $I/baked.cp per the natives agent's contract
-# (work/natives/build/lwjgl-3.4.1/USAGE.md): stock LWJGL 3.4.1 Java jars with the :unsafe core (JNI, not FFM),
-# lwjgl-glfw-3.4.1.jar -> klglfw/lwjgl-glfw-klglfw-3.4.1.jar, every *-natives-*.jar dropped (no stock dylib, no
-# MoltenVK), jtracy natives dropped. Natives come from $LWJGL341/<platform>/ via -Dorg.lwjgl.librarypath (run.sh).
+# (work/natives/build/lwjgl-<v>/USAGE.md; <v> from work/natives/scripts/lwjgl-ver.sh: 26.2 = 3.4.1, 26.3 = 3.4.3):
+# stock LWJGL <v> Java jars with the :unsafe core (JNI, not FFM; mkcp.sh swaps it in where Mojang's json names the
+# plain core, as 26.3 does), lwjgl-glfw-<v>.jar -> klglfw/lwjgl-glfw-klglfw-<v>.jar when the classpath has it (26.2;
+# 26.3 is SDL3 and has no lwjgl-glfw), every *-natives-*.jar dropped (no stock dylib, no MoltenVK), jtracy natives
+# dropped. Natives come from $LWJGL341/<platform>/ via -Dorg.lwjgl.librarypath (run.sh).
 #   t4.cp    = baked/t4 : baked.cp(filtered)
 #   t4-ni.cp = t4.cp minus jna, jna-platform, oshi-core, java-objc-bridge, plus the shared baked/t23-stubs
-LWJGL341=${LWJGL341:-$W/../natives/build/lwjgl-3.4.1}
-[ -f $LWJGL341/READY-macosx ] && [ -f $LWJGL341/klglfw/lwjgl-glfw-klglfw-3.4.1.jar ] || { echo "!! $LWJGL341 not READY (natives agent)"; exit 1; }
+. "$ROOT/work/natives/scripts/lwjgl-ver.sh"; LV=$LWJGL_VER
+LWJGL341=${LWJGL341:-$LWJGL_OUT}
+[ -f $LWJGL341/READY-macosx ] && [ -f $LWJGL341/klglfw/lwjgl-glfw-klglfw-$LV.jar ] || { echo "!! $LWJGL341 not READY (natives agent)"; exit 1; }
 # The klglfw jar is APFS-cloned (cp -c: no extra disk) into $I/klglfw/ so every classpath entry lives under work/native-image
 # (stage_native.sh only stages entries under it). Vivecraft's nested `org_lwjgl_*_natives-*` jars go too (Linux/Windows/
 # Android openxr + openvr natives: never loaded here, the OpenXR loader is named explicitly).
-mkdir -p $I/klglfw && cp -c $LWJGL341/klglfw/lwjgl-glfw-klglfw-3.4.1.jar $I/klglfw/
+mkdir -p $I/klglfw && cp -c $LWJGL341/klglfw/lwjgl-glfw-klglfw-$LV.jar $I/klglfw/
 tr ':' '\n' < $I/baked.cp | grep -v -E -- '-natives-|_natives-|/jtracy-.*natives' \
-  | sed "s#^$I/vanilla/lib/lwjgl-glfw-3\.4\.1\.jar\$#$I/klglfw/lwjgl-glfw-klglfw-3.4.1.jar#" > $I/cp.lines
-grep -q -- '/lwjgl-3.4.1-unsafe.jar$' $I/cp.lines && ! grep -q -- '/lwjgl-3.4.1.jar$' $I/cp.lines && grep -q lwjgl-glfw-klglfw $I/cp.lines \
-  && ! grep -q '/lwjgl-glfw-3.4.1.jar$' $I/cp.lines
+  | sed "s#^$I/vanilla/lib/lwjgl-glfw-${LV//./\\.}\.jar\$#$I/klglfw/lwjgl-glfw-klglfw-$LV.jar#" > $I/cp.lines
+grep -q -- "/lwjgl-$LV-unsafe.jar\$" $I/cp.lines && ! grep -q -- "/lwjgl-$LV.jar\$" $I/cp.lines \
+  && ! grep -q "/lwjgl-glfw-$LV.jar\$" $I/cp.lines
+if ! grep -q lwjgl-glfw-klglfw $I/cp.lines; then echo "note: no lwjgl-glfw-$LV.jar on $I/baked.cp (26.3+: SDL3), klglfw not on t4.cp"; fi
 { echo -n "$I/baked/t4:"; paste -sd: $I/cp.lines; } > $I/t4.cp
 { echo "$I/baked/t4"; grep -v -E '/(jna|jna-platform|oshi-core|java-objc-bridge)-[0-9.]+\.jar$' $I/cp.lines; echo "$W/baked/t23-stubs"; } | paste -sd: - > $I/t4-ni.cp
 rm $I/cp.lines
@@ -79,10 +83,10 @@ while IFS= read -r -d '' source; do STUB_SOURCES+=("$source"); done < <(find "$W
 [ "${#STUB_SOURCES[@]}" -gt 0 ] || { echo "Missing T23 stub sources"; exit 1; }
 "$G/bin/javac" -nowarn -d "$W/baked/t23-stubs" "${STUB_SOURCES[@]}"
 rm -rf $I/baked/t4; mkdir -p $I/baked/t4
-SUBST="$(ls $W/scripts/t3-src/*.java $S/subst/*.java | grep -v -F "${SUBST_SKIP:-/nothing/}") $(ls $S/subst-$MCV/*.java 2>/dev/null)"
+SUBST="$(ls $W/scripts/t3-src/*.java $S/subst/*.java | grep -v -F "${SUBST_SKIP:-/nothing/}") $(ls $S/subst-${SUBSTV:-$MCV}/*.java 2>/dev/null)"
 $G/bin/javac -nowarn -d $I/baked/t4 -cp "$(cat $I/t4-ni.cp)" $SUBST
 ls -la $D $D/natives $I/baked/t4
 case $MCV in
   1.*) unzip -l "$D/lwjgl-glfw-t4.jar" | tail -1 ;;
-  *) unzip -l "$I/klglfw/lwjgl-glfw-klglfw-3.4.1.jar" | tail -1 ;;
+  *) unzip -l "$I/klglfw/lwjgl-glfw-klglfw-$LV.jar" | tail -1 ;;
 esac

@@ -38,7 +38,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 # 26.2 is the instance this tree builds. Export before targets.py so the
-# LWJGL 3.4.1 natives are selected when the caller left MCV unset.
+# LWJGL natives for that MCV (26.2 = 3.4.1) are selected when the caller left MCV unset.
 export MCV="${MCV:-26.2}"
 eval "$(python3 targets.py "${KLEPTON_TARGET:-}")"
 export KLEPTON_TARGET="$KLT_NAME"

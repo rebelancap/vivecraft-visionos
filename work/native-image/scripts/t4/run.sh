@@ -36,10 +36,12 @@ CFG=$I/fgamedir/config/vivecraft-client-config.json
 GLARGS="-Dorg.lwjgl.opengl.libname=$LTW"
 [ "$NOLTW" = 1 ] && GLARGS=""
 LWJGL="-Dorg.lwjgl.librarypath=$W/lwjgl-fork-t4/natives -Dorg.lwjgl.system.allocator=system -Dorg.lwjgl.util.Debug=true -Dorg.lwjgl.util.DebugLoader=true $GLARGS"
-# 26.x: stock LWJGL 3.4.1 natives + libklglfw from the natives agent (work/natives/build/lwjgl-3.4.1/USAGE.md); our
+# 26.x: stock LWJGL natives + libklglfw from the natives agent (work/natives/build/lwjgl-<v>/USAGE.md, <v> per MCV from
+# work/natives/scripts/lwjgl-ver.sh: 26.2 = 3.4.1, 26.3 = 3.4.3); our
 # Vivecraft 26.2 OpenXR jar takes its mobile GLES path with -Dvivecraft.openxr.mobile=true (as launch.txt for 26.x).
 case $MCV in 1.*) ;; *)
-  LWJGL="-Dorg.lwjgl.librarypath=${LWJGL341:-$W/../natives/build/lwjgl-3.4.1}/macosx -Dorg.lwjgl.system.allocator=system -Dorg.lwjgl.util.Debug=true -Dorg.lwjgl.util.DebugLoader=true -Dorg.lwjgl.util.NoHashChecks=true -Dvivecraft.openxr.mobile=true $GLARGS";;
+  . "$ROOT/work/natives/scripts/lwjgl-ver.sh"
+  LWJGL="-Dorg.lwjgl.librarypath=${LWJGL341:-$LWJGL_OUT}/macosx -Dorg.lwjgl.system.allocator=system -Dorg.lwjgl.util.Debug=true -Dorg.lwjgl.util.DebugLoader=true -Dorg.lwjgl.util.NoHashChecks=true -Dvivecraft.openxr.mobile=true $GLARGS";;
 esac
 VRARGS=""
 if [ "$VR" = 1 ]; then

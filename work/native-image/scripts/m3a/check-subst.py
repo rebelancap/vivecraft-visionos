@@ -98,6 +98,36 @@ if MOJ:
      ('org/vivecraft/client_vr/provider/openxr/DeviceCompat', 'mobileRequested', None, 'm', 'our jar: patch 0001 (-Dvivecraft.openxr.mobile)'),
     ]
     PTT = {'C': [('org/vivecraft/client_vr/provider/openxr/control/XRBinding', 'quest2Bindings', None, 'm', 'our jar: XRBinding.quest2Bindings (patch 0003 PTT; check-touch-map.py checks the rows)')]}
+    # 26.3 (renderpearl renderer, SDL3 -> klsdl): scripts/t4-src/subst-26.3 + subst-fabric-src-26.3 + spikef-src-26.3.
+    # Selected when the index has com/mojang/renderpearl (26.2 has com/mojang/blaze3d/opengl). Shared rows are reused.
+    if 'com/mojang/renderpearl/backend/opengl/GlBackend' in I:
+        RP = 'com/mojang/renderpearl/'
+        keep = lambda pre: [r for r in T if r[4].startswith(pre)]
+        T = [
+         ('com/mojang/blaze3d/platform/MacosUtil', 'disableCloseWindowMenuItem', '()V', 'm', 'Target_T3 MacosUtil.disableCloseWindowMenuItem (subst-26.3)'),
+         ('net/minecraft/client/gui/components/debug/DebugEntrySystemSpecs', 'getCpuInfo', '()Ljava/lang/String;', 'm', 'Target_T3 DebugEntrySystemSpecs.getCpuInfo (26.2: GLX._getCpuInfo)'),
+         ('net/minecraft/SystemReport', 'lambda$new$6', '()V', 'm', 'Target_T3 SystemReport lambda$new$6 (putHardware(new SystemInfo()))'),
+         ('net/minecraft/SystemReport', 'lambda$new$7', '()V', 'm', 'Target_T3 SystemReport lambda$new$7 (putSoftware(new SystemInfo()))'),
+         (RP + 'backend/opengl/GlDebug', 'enableDebugCallback', '(IZLjava/util/Set;)L' + RP + 'backend/opengl/GlDebug;', 'm', 'Target_T3 GlDebug.enableDebugCallback (renderpearl)'),
+         ('net/minecraft/util/NativeModuleLister', 'listModules', '()Ljava/util/List;', 'm', 'Target_T3 NativeModuleLister.listModules'),
+         ('com/mojang/text2speech/Narrator', 'getNarrator', None, 'm', 'Target_T3 Narrator'),
+         ('net/minecraft/server/MinecraftServer', 'loadStatusIcon', '()Ljava/util/Optional;', 'm', 'Target_MinecraftServer_Int loadStatusIcon (subst-fabric-src-26.3)'),
+         ('net/fabricmc/loader/impl/util/UrlUtil', 'getCodeSource', None, 'm', 'Target_UrlUtil'),
+         (VSR[0], VSR[1], '(L' + RP + 'api/vertex/VertexFormat;L' + RP + 'api/vertex/VertexFormat;)Lnet/caffeinemc/mods/sodium/api/vertex/serializer/VertexSerializer;', 'm', 'Target_SodiumSerializers (subst-26.3: renderpearl VertexFormat)'),
+         (RP + 'api/vertex/VertexFormat', 'getElement', '(Ljava/lang/String;)L' + RP + 'api/vertex/VertexFormatElement;', 'm', 'Target_SodiumSerializers VertexFormat.getElement'),
+         (RP + 'api/GpuFormat', 'blockSize', '()I', 'm', 'Target_SodiumSerializers GpuFormat.blockSize'),
+        ] + keep('Target_SvcMicrophone') + keep('Target_SvcVersionCheck') + keep('Target_SvcNatives') + [
+         ('net/minecraft/client/PreferredGraphicsApi', 'getBackendsToTry', '()[L' + RP + 'api/device/GpuBackend;', 'm', 'Target_Vulkan PreferredGraphicsApi.getBackendsToTry'),
+         (RP + 'backend/vulkan/VulkanBackend', 'checkBackendAvailable', '()L' + RP + 'api/device/BackendCreationException;', 'm', 'Target_Vulkan VulkanBackend.checkBackendAvailable'),
+         (RP + 'backend/opengl/GlBackend', '<init>', '()V', 'm', 'Target_Vulkan new GlBackend()'),
+        ] + keep('Target_Vulkan Vivecraft') + keep('Target_Vulkan OpenGLHelper') + keep('gen-reflect-extra') + [
+         ('org/vivecraft/client/gui/settings/GuiMainVRSettings', '<init>', '(Lnet/minecraft/client/gui/screens/Screen;)V', 'm', 'KlScreenWalker GuiMainVRSettings(Screen)'),
+         ('net/minecraft/client/gui/Gui', 'setScreen', '(Lnet/minecraft/client/gui/screens/Screen;)V', 'm', 'KlScreenWalker gui.setScreen'),
+         ('net/minecraft/client/gui/screens/options/OptionsScreen', '<init>', '(Lnet/minecraft/client/gui/screens/Screen;Lnet/minecraft/client/Options;)V', 'm', 'KlScreenWalker OptionsScreen(Screen,Options) (26.3: no boolean)'),
+         ('org/vivecraft/client_vr/provider/openxr/DeviceCompat', 'mobileRequested', None, 'm', 'our jar: patch 0001 (-Dvivecraft.openxr.mobile)'),
+         ('org/lwjgl/sdl/KlSdlNative', None, None, 'c', 'klsdl stand-in on the classpath (lwjgl-sdl-klsdl-<v>.jar, not stock lwjgl-sdl)'),
+         ('org/lwjgl/sdl/SDL', 'getLibrary', '()Lorg/lwjgl/system/SharedLibrary;', 'm', 'klsdl SDL.getLibrary (NativeLibrariesBootstrap loads "SDL" eagerly)'),
+        ]
     for m in MANUAL_CLASSES():
         T.append((m, None, None, 'c', 'reflect-extra-manual.json class'))
 def check(c, m, d, k):

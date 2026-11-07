@@ -1,9 +1,11 @@
-# glfwcover.py <refs.txt> <jar-or-dir> [<lib.jar> ...]
+# glfwcover.py <refs.txt> <jar-or-dir> [<lib.jar> ...]      (KLCOVER_PKG=org/lwjgl/sdl/: the same gate for klsdl)
 # For every "Owner.name:desc" line of a glfwrefs.py listing, check that the member resolves in the stand-in jar
 # (following superclasses into the extra library jars, e.g. lwjgl core for CustomBuffer.position). Then check that every
 # org/lwjgl/glfw/* member referenced by the stand-in jar's OWN classes resolves too (catches stock struct/callback
 # classes that still point at the removed GLFW$Functions etc.). Prints misses; exit 1 if any.
 import sys, zipfile, os, struct
+PKG = os.environ.get('KLCOVER_PKG', 'org/lwjgl/glfw/')
+NAME = 'sdlcover' if 'sdl' in PKG else 'glfwcover'
 def classes(e):
     if os.path.isdir(e):
         for d, _, fs in os.walk(e):
@@ -71,7 +73,7 @@ for line in open(sys.argv[1]):
 m2 = 0
 for cname, (_, _, _, _, refs) in own.items():
     for o, nm, ds in refs:
-        if o.startswith('org/lwjgl/glfw/') and not resolves(o, nm, ds):
+        if o.startswith(PKG) and not resolves(o, nm, ds):
             print('MISSING (inside jar):', o + '.' + nm + ':' + ds, '  <-', cname); m2 += 1
-print(f'glfwcover: {n} game refs, {miss} missing; {len(own)} jar classes, {m2} dangling internal glfw refs')
+print(f'{NAME}: {n} game refs, {miss} missing; {len(own)} jar classes, {m2} dangling internal {PKG} refs')
 sys.exit(1 if miss or m2 else 0)

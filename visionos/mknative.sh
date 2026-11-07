@@ -39,6 +39,7 @@ for pair in $KLT_NATIVES; do
       case "$NAME" in
         libminecraft) echo "   (work/native-image/scripts/t8/build-shared.sh + relink-xros.sh $PLAT${MCV:+, T8OUT=out/t8-$MCV for MCV=$MCV})";;
         libklglfw|libklegl|libltw) echo "   (work/native-image/scripts/t8b/build-natives.sh $PLAT)";;
+        libklsdl) echo "   (work/native-image/scripts/t2/build-klsdl.sh $PLAT)";;
         libvloader|libopenxr_loader) echo "   (work/natives/scripts/build-openxr-shim.sh)";;
         libopenal) echo "   (work/natives/scripts/build-openal.sh)";;
         liblwjgl*) echo "   (work/native-image/scripts/t2/build-fork-natives-xros.sh $PLAT)";;

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fabric instance on macOS: libs + macOS LWJGL -> $I/fabric.cp, gamedir $I/fgamedir   (MCV: see scripts/inst.sh)
 #   1.21.5: libs/mods/config/saves from the Klepton userdata instance (original behaviour).
-#   Other versions: libs + mods from $I/files; config copied from the 1.21.5 fgamedir (mod configs are version-
+#   Other versions: libs + mods from $I/files; config copied from the 1.21.5 fgamedir (26.x: 1.21.11, else 26.2 for 26.3+) (mod configs are version-
 #   independent JSON/TOML, unknown keys ignored); options.txt from the 1.21.5 fgamedir; saves/world copied from the
 #   1.21.5 fgamedir (one-way DFU upgrade of the COPY only).
 #   Libraries and mods are required. The prior config/options/world copies are optional: skipped when the source is
@@ -42,7 +42,9 @@ else
   grep -e '^libraries/org/ow2/' -e '^libraries/net/fabricmc/sponge-mixin' "$V/versions/$MCV/libs-fabric.txt" | while IFS= read -r l; do copy_lib "$V/$l"; done
   # config/options/world source: 1.21.x <- the 1.21.5 fgamedir; 26.x <- the 1.21.11 instance (its voicechat config already
   # has macos_check_microphone_permission=false; its world copy is already DFU'd to 1.21.11 -> one more one-way hop).
-  SRCG="$W/fgamedir"; case $MCV in 1.*) ;; *) [ -d "$W/inst-1.21.11/fgamedir" ] && SRCG="$W/inst-1.21.11/fgamedir";; esac
+  # 26.3+ with no 1.21.11 instance (a clean public tree): the 26.2 instance, the closest older 26.x (one DFU hop).
+  SRCG="$W/fgamedir"; case $MCV in 1.*) ;; *) if [ -d "$W/inst-1.21.11/fgamedir" ]; then SRCG="$W/inst-1.21.11/fgamedir"
+    elif [ "$MCV" != 26.2 ] && [ -d "$W/inst-26.2/fgamedir" ]; then SRCG="$W/inst-26.2/fgamedir"; fi;; esac
   copy_mods "$V/mods"
   copy_prior "$SRCG/config" "$I/fgamedir/config"
   copy_prior "$SRCG/saves/world" "$I/fgamedir/saves/world"

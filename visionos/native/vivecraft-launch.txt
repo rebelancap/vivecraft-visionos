@@ -37,6 +37,7 @@ vivecraft
 -Dorg.lwjgl.openal.libname=@FW@/libopenal.dylib
 -Dorg.lwjgl.openxr.libname=@FW@/libopenxr_loader.dylib
 -Dklglfw.libpath=@FW@/libklglfw.dylib
+-Dklsdl.libpath=@FW@/libklsdl.dylib
 -Djava.library.path=@FW@
 --accessToken
 0

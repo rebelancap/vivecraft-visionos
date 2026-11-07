@@ -255,7 +255,9 @@ def resolve(name):
     # plus tinyfd and FreeType, which 26.2's NativeLibrariesBootstrap loads eagerly and fatally) and klglfw come from
     # work/natives/build/lwjgl-<v>/{sdk}/ (USAGE.md there), <v> per MCV as work/natives/scripts/lwjgl-ver.sh
     # (26.2 = 3.4.1, 26.3 = 3.4.3; LWJGL_VER overrides). 26.3 loads SDL3 instead of GLFW and no longer loads tinyfd:
-    # no visionOS libSDL3 is built yet, so a 26.3 row is incomplete. Keyed on the MCV env var that run.sh,
+    # libklsdl (the SDL3 stand-in, work/native-image/scripts/t2/build-klsdl.sh) takes libklglfw's place there (kl_app.c
+    # opens whichever is embedded). Still missing for 26.3: shaderc + spirv-cross (spvc), which 26.3 needs even on GL
+    # (GLSL -> SPIR-V -> GLSL); no visionOS build of either exists yet. Keyed on the MCV env var that run.sh,
     # mknative.sh and stage_native.sh already share; unset / 1.x leaves the row exactly as written. libs/natives are
     # build-only, so `make targets` (the C table) is unaffected.
     _mcv = os.environ.get("MCV") or "26.2"
@@ -267,8 +269,11 @@ def resolve(name):
         _l341 = f"work/natives/build/lwjgl-{_lv}/{{sdk}}/"
         _swap = {n: _l341 + n + ".dylib" for n in
                  ("liblwjgl", "liblwjgl_opengl", "liblwjgl_stb", "libopenal", "libklglfw",
-                  "liblwjgl_tinyfd", "libfreetype")}
+                  "liblwjgl_tinyfd", "libfreetype", "libklsdl")}
         _pairs = [p.split("=", 1) for p in t["natives"].split()]
+        if _mcv != "26.2":   # SDL3 (26.3+): libklsdl instead of libklglfw (no GLFW reference left in the classpath)
+            _pairs = [("libklsdl", src) if n == "libklglfw" else (n, src) for n, src in _pairs]
+            t["libs"] = " ".join("libklsdl" if n == "libklglfw" else n for n in t["libs"].split())
         _names = [n for n, _ in _pairs]
         _pairs = [(n, _swap.get(n, src)) for n, src in _pairs]
         _extra = [n for n in ("liblwjgl_tinyfd", "libfreetype") if n not in _names]

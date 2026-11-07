@@ -54,7 +54,7 @@ grep -q lwjgl-glfw-t4.jar $I/t4.cp && grep -q lwjgl-glfw-t4.jar $I/t4-ni.cp && !
 # (work/natives/build/lwjgl-<v>/USAGE.md; <v> from work/natives/scripts/lwjgl-ver.sh: 26.2 = 3.4.1, 26.3 = 3.4.3):
 # stock LWJGL <v> Java jars with the :unsafe core (JNI, not FFM; mkcp.sh swaps it in where Mojang's json names the
 # plain core, as 26.3 does), lwjgl-glfw-<v>.jar -> klglfw/lwjgl-glfw-klglfw-<v>.jar when the classpath has it (26.2;
-# 26.3 is SDL3 and has no lwjgl-glfw), every *-natives-*.jar dropped (no stock dylib, no MoltenVK), jtracy natives
+# 26.3 is SDL3 and has no lwjgl-glfw), lwjgl-sdl-<v>.jar -> klsdl/lwjgl-sdl-klsdl-<v>.jar when it has that (26.3+), every *-natives-*.jar dropped (no stock dylib, no MoltenVK), jtracy natives
 # dropped. Natives come from $LWJGL341/<platform>/ via -Dorg.lwjgl.librarypath (run.sh).
 #   t4.cp    = baked/t4 : baked.cp(filtered)
 #   t4-ni.cp = t4.cp minus jna, jna-platform, oshi-core, java-objc-bridge, plus the shared baked/t23-stubs
@@ -65,11 +65,18 @@ LWJGL341=${LWJGL341:-$LWJGL_OUT}
 # (stage_native.sh only stages entries under it). Vivecraft's nested `org_lwjgl_*_natives-*` jars go too (Linux/Windows/
 # Android openxr + openvr natives: never loaded here, the OpenXR loader is named explicitly).
 mkdir -p $I/klglfw && cp -c $LWJGL341/klglfw/lwjgl-glfw-klglfw-$LV.jar $I/klglfw/
+# 26.3+ (SDL3): lwjgl-sdl-<v>.jar -> klsdl/lwjgl-sdl-klsdl-<v>.jar (scripts/t2/build-klsdl.sh), cloned the same way.
+if grep -q -- "/lwjgl-sdl-$LV.jar" $I/baked.cp; then
+  [ -f $LWJGL341/klsdl/lwjgl-sdl-klsdl-$LV.jar ] || { echo "!! $I/baked.cp has lwjgl-sdl-$LV.jar but there is no $LWJGL341/klsdl/lwjgl-sdl-klsdl-$LV.jar (scripts/t2/build-klsdl.sh)"; exit 1; }
+  mkdir -p $I/klsdl && cp -c $LWJGL341/klsdl/lwjgl-sdl-klsdl-$LV.jar $I/klsdl/
+fi
 tr ':' '\n' < $I/baked.cp | grep -v -E -- '-natives-|_natives-|/jtracy-.*natives' \
-  | sed "s#^$I/vanilla/lib/lwjgl-glfw-${LV//./\\.}\.jar\$#$I/klglfw/lwjgl-glfw-klglfw-$LV.jar#" > $I/cp.lines
+  | sed -e "s#^$I/vanilla/lib/lwjgl-glfw-${LV//./\\.}\.jar\$#$I/klglfw/lwjgl-glfw-klglfw-$LV.jar#" \
+        -e "s#^$I/vanilla/lib/lwjgl-sdl-${LV//./\\.}\.jar\$#$I/klsdl/lwjgl-sdl-klsdl-$LV.jar#" > $I/cp.lines
 grep -q -- "/lwjgl-$LV-unsafe.jar\$" $I/cp.lines && ! grep -q -- "/lwjgl-$LV.jar\$" $I/cp.lines \
-  && ! grep -q "/lwjgl-glfw-$LV.jar\$" $I/cp.lines
+  && ! grep -q "/lwjgl-glfw-$LV.jar\$" $I/cp.lines && ! grep -q "/lwjgl-sdl-$LV.jar\$" $I/cp.lines
 if ! grep -q lwjgl-glfw-klglfw $I/cp.lines; then echo "note: no lwjgl-glfw-$LV.jar on $I/baked.cp (26.3+: SDL3), klglfw not on t4.cp"; fi
+if grep -q lwjgl-sdl-klsdl $I/cp.lines; then echo "klsdl: lwjgl-sdl-$LV.jar -> $I/klsdl/lwjgl-sdl-klsdl-$LV.jar"; fi
 { echo -n "$I/baked/t4:"; paste -sd: $I/cp.lines; } > $I/t4.cp
 { echo "$I/baked/t4"; grep -v -E '/(jna|jna-platform|oshi-core|java-objc-bridge)-[0-9.]+\.jar$' $I/cp.lines; echo "$W/baked/t23-stubs"; } | paste -sd: - > $I/t4-ni.cp
 rm $I/cp.lines
@@ -88,5 +95,6 @@ $G/bin/javac -nowarn -d $I/baked/t4 -cp "$(cat $I/t4-ni.cp)" $SUBST
 ls -la $D $D/natives $I/baked/t4
 case $MCV in
   1.*) unzip -l "$D/lwjgl-glfw-t4.jar" | tail -1 ;;
-  *) unzip -l "$I/klglfw/lwjgl-glfw-klglfw-$LV.jar" | tail -1 ;;
+  *) unzip -l "$I/klglfw/lwjgl-glfw-klglfw-$LV.jar" | tail -1
+     if [ -f "$I/klsdl/lwjgl-sdl-klsdl-$LV.jar" ]; then unzip -l "$I/klsdl/lwjgl-sdl-klsdl-$LV.jar" | tail -1; fi ;;
 esac

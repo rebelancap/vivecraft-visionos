@@ -92,6 +92,11 @@
 #include <unistd.h>
 
 #define KL_EXPORT __attribute__((visibility("default")))
+/* Log prefix and screenshot file prefix. klsdl.c (the SDL3 stand-in for Minecraft 26.3+) #includes this file with
+ * KL_TAG "klsdl" and reuses its EGL/ltw, event ring, test script and screenshot code. */
+#ifndef KL_TAG
+#define KL_TAG "klglfw"
+#endif
 
 /* ---- event records: keep in sync with GLFW.EV_* in GLFW.java -------------------------------------------------- */
 enum {
@@ -203,9 +208,9 @@ static char last_error[1024];
 
 static void seterr(const char *fmt, ...) {
     va_list ap; va_start(ap, fmt); vsnprintf(last_error, sizeof last_error, fmt, ap); va_end(ap);
-    fprintf(stderr, "[klglfw] error: %s\n", last_error);
+    fprintf(stderr, "[" KL_TAG "] error: %s\n", last_error);
 }
-#define LOG(...) do { fprintf(stderr, "[klglfw] " __VA_ARGS__); fputc('\n', stderr); } while (0)
+#define LOG(...) do { fprintf(stderr, "[" KL_TAG "] " __VA_ARGS__); fputc('\n', stderr); } while (0)
 
 /* ---- time --------------------------------------------------------------------------------------------------------- */
 static uint64_t ns_since_init(void) {
@@ -419,7 +424,7 @@ static void take_shot(klglfw_window *w, const char *why) {
         if (p[0] > 8 || p[1] > 8 || p[2] > 8) lit++;
     }
     char path[1200];
-    snprintf(path, sizeof path, "%s/klglfw-%04lu-f%06lu-t%05.1f.png", S.shot_dir, S.shots++, S.frames, now_s());
+    snprintf(path, sizeof path, "%s/" KL_TAG "-%04lu-f%06lu-t%05.1f.png", S.shot_dir, S.shots++, S.frames, now_s());
     int rc = write_png(path, px, w->width, w->height);
     LOG("shot (%s) frame=%lu t=%.2f %dx%d -> %s%s  mean=(%.0f,%.0f,%.0f) nonblack=%.1f%%", why, S.frames, now_s(),
         w->width, w->height, path, rc ? " WRITE FAILED" : "", sum[0] / npx, sum[1] / npx, sum[2] / npx, 100.0 * lit / npx);
@@ -545,7 +550,7 @@ JNI_FN(jstring, nLastError)(JNIEnv *env, jclass cls) { (void)cls; return jstr(en
 JNI_FN(jstring, nDescribe)(JNIEnv *env, jclass cls) {
     (void)cls;
     char b[2048];
-    snprintf(b, sizeof b, "libklglfw: EGL %d.%d via %s; ES 3.0 pbuffer contexts created+made current through its "
+    snprintf(b, sizeof b, "lib" KL_TAG ": EGL %d.%d via %s; ES 3.0 pbuffer contexts created+made current through its "
              "eglCreateContext/eglMakeCurrent; shots every=%ld at=%d dir=%s; fps log %s; script %d line(s)",
              S.egl_major, S.egl_minor, S.gl_path, S.shot_every, S.n_shot_at, S.shot_dir, S.fps_log ? "on" : "off", n_script);
     return jstr(env, b);

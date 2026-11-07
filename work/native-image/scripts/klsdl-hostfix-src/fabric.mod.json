@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "klsdl_hostfix",
+  "version": "1",
+  "name": "klsdl host-run fix",
+  "description": "Host (macOS JVM) runs on klsdl only, via -Dfabric.addMods (scripts/runfabric.sh KLSDL=1). Never in the bake or the image.",
+  "environment": "client",
+  "mixins": ["klsdl_hostfix.mixins.json"]
+}

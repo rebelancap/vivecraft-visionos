@@ -3190,17 +3190,23 @@ static int native_boot(void) {
     //    ANGLE (kl_glfb) up here, on this thread, before the guest exists.
     app_phase("native ltw");
     if (!native_open("libltw", RTLD_NOW | RTLD_LOCAL)) return fail("libltw.dylib did not load");
-    // 4. libklglfw's platform side.
-    void *gf = native_open("libklglfw", RTLD_NOW | RTLD_LOCAL);
+    // 4. the windowing stand-in's platform side: libklsdl (Minecraft 26.3+, SDL3) when the app embeds it, else
+    //    libklglfw. libklsdl #includes klglfw.c, so both export the same klglfw_* C API, take the same GLFW-coded
+    //    events and read the same KLGLFW_* environment; launch.txt's -Dklsdl.libpath / -Dklglfw.libpath name the same
+    //    file, so the image's System.load gets this very module.
+    char wpath[1200];
+    snprintf(wpath, sizeof wpath, "%s/libklsdl.dylib", g_dylibs);
+    const char *wl = have(wpath) ? "libklsdl" : "libklglfw";
+    void *gf = native_open(wl, RTLD_NOW | RTLD_LOCAL);
     g_native_push = gf ? (void (*)(int, int, int, int, int, double, double))dlsym(gf, "klglfw_push_event") : NULL;
     g_native_cursor_mode = gf ? (int (*)(void))dlsym(gf, "klglfw_get_cursor_mode") : NULL;
     g_native_cursor_pos = gf ? (void (*)(double *, double *))dlsym(gf, "klglfw_get_cursor_pos") : NULL;
-    printf("  [native] input: %s\n", g_native_push ? "window pointer/keys -> klglfw_push_event"
-                                                  : "NONE (libklglfw has no klglfw_push_event)");
+    printf("  [native] input: %s%s\n", g_native_push ? "window pointer/keys -> klglfw_push_event in " : "NONE (no klglfw_push_event in ",
+           g_native_push ? wl : "libklglfw/libklsdl)");
     void (*set_term)(void (*)(void)) = gf ? (void (*)(void (*)(void)))dlsym(gf, "klglfw_set_terminate_hook") : NULL;
     if (set_term) set_term(native_on_glfw_terminate);
-    printf("  [native] quit grace: %s\n", set_term ? "glfwTerminate -> native_on_glfw_terminate (KL_MC_QUIT_GRACE_MS)"
-                                                  : "NONE (libklglfw has no klglfw_set_terminate_hook)");
+    printf("  [native] quit grace: %s\n", set_term ? "glfwTerminate / SDL_Quit -> native_on_glfw_terminate (KL_MC_QUIT_GRACE_MS)"
+                                                  : "NONE (no klglfw_set_terminate_hook)");
     // 5. the image.
     app_phase("native image");
     struct timespec t0, t1;

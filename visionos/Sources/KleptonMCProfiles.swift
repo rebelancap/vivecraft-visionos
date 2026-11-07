@@ -58,6 +58,18 @@ import Foundation
 //
 // Swift prepares the dir on every Launch press and hands it to kl_app.c as
 // KL_MC_GAMEDIR (absolute) + KL_MC_PROFILE_NOTE (one line for the boot log).
+//
+// Minecraft version upgrade (inheritPreviousVersion): the instance dir is per
+// version (root/inst-26.2, root/inst-26.3), so a new version starts with no
+// profiles. The first time an instance is looked at and has no profiles/ yet,
+// the newest older sibling's profiles/ (inst-<older>/profiles) is COPIED in
+// whole: every account's worlds, options.txt, config/ (Vivecraft, Sodium,
+// voice chat, the comfort/pitch markers), servers.dat, screenshots, and the
+// .migrated marker. APFS clonefile, so it costs no space until either side
+// changes. The old instance is never touched; Minecraft upgrades the copied
+// worlds in place when they are opened. The mods/.fabric/resourcepacks links
+// are relative (../../fgamedir/…), so in the copy they point at the NEW
+// instance's fgamedir without any rewrite.
 
 enum MCProfileFS {
     static let seedCopy = ["options.txt", "keyboardtheme.txt", "config", "input"]
@@ -66,6 +78,65 @@ enum MCProfileFS {
     static let inheritMoveFiles = ["servers.dat", "usercache.json", "command_history.txt"]
 
     struct Result { var path: String; var note: String; var created: Bool; var migrated: Bool }
+
+    /// The copy's log line, for the boot log's profile note: the copy usually
+    /// happens at the launcher's first world list, before the boot log opens.
+    nonisolated(unsafe) static var inheritedNote: String?
+
+    /// One-time copy of the previous Minecraft version's profiles/ into
+    /// <instance>/profiles. Does nothing once <instance>/profiles exists. The
+    /// copy lands under a temporary name and is renamed into place, so a crash
+    /// half-way never leaves a partial profiles/ that would stop a retry.
+    /// Returns the log line when it copied, nil otherwise. Never throws.
+    @discardableResult
+    static func inheritPreviousVersion(instance: String) -> String? {
+        let fm = FileManager.default
+        let dest = instance + "/profiles"
+        if exists(dest) { return nil }
+        let leaf = (instance as NSString).lastPathComponent
+        guard leaf.hasPrefix("inst-") else { return nil }
+        let mine = versionKey(String(leaf.dropFirst(5)))
+        let parent = (instance as NSString).deletingLastPathComponent
+        var best: (key: [Int], dir: String)?
+        for kid in (try? fm.contentsOfDirectory(atPath: parent)) ?? [] where kid.hasPrefix("inst-") && kid != leaf {
+            let k = versionKey(String(kid.dropFirst(5)))
+            var isDir: ObjCBool = false
+            guard k.lexicographicallyPrecedes(mine),
+                  fm.fileExists(atPath: parent + "/" + kid + "/profiles", isDirectory: &isDir), isDir.boolValue
+            else { continue }
+            if best == nil || best!.key.lexicographicallyPrecedes(k) { best = (k, parent + "/" + kid + "/profiles") }
+        }
+        guard let src = best?.dir else { return nil }
+        let tmp = instance + "/.profiles-inherit-" + UUID().uuidString
+        do {
+            try fm.createDirectory(atPath: instance, withIntermediateDirectories: true)
+            if clonefile(src, tmp, UInt32(CLONE_NOFOLLOW)) != 0 {
+                let why = String(cString: strerror(errno))
+                try? fm.removeItem(atPath: tmp)
+                try fm.copyItem(atPath: src, toPath: tmp)   // not APFS / cross-volume: a real copy
+                NSLog("[profiles] clonefile failed (%@); copied instead", why)
+            }
+            if rename(tmp, dest) != 0 {
+                // Someone else created profiles/ meanwhile: theirs stands.
+                try? fm.removeItem(atPath: tmp)
+                return nil
+            }
+        } catch {
+            try? fm.removeItem(atPath: tmp)
+            NSLog("[profiles] copying %@ -> %@ failed: %@", src, dest, error.localizedDescription)
+            return nil
+        }
+        let n = ((try? fm.contentsOfDirectory(atPath: dest)) ?? []).filter { !$0.hasPrefix(".") }.count
+        let line = "copied \(n) profile(s) from \(src) to \(dest) (the old version's copy is untouched)"
+        NSLog("[profiles] %@", line)
+        inheritedNote = line
+        return line
+    }
+
+    /// "26.2" -> [26, 2], "1.21.10" -> [1, 21, 10]; a non-number part is 0.
+    static func versionKey(_ v: String) -> [Int] {
+        v.split(separator: ".").map { Int($0) ?? 0 }
+    }
 
     /// Create (or repair) <instance>/profiles/<key> from <gameDir> (= fgamedir).
     /// `mayInherit`: an account that owns the game. Never deletes anything.
@@ -201,6 +272,7 @@ enum MCProfiles {
             return
         }
         guard let (inst, gd) = dirs() else { NSLog("[profiles] no launch.txt game dir"); return }
+        MCProfileFS.inheritPreviousVersion(instance: inst)
         let (key, owns, name) = bootTarget()
         // A bundled game dir has no personal save. See sharesSeedWorld.
         let inherit = owns || KleptonPayload.sharesSeedWorld
@@ -218,6 +290,7 @@ enum MCProfiles {
             let pitch = MCHUDPitch.apply(profileDir: r.path)
             NSLog("[hud-pitch] %@: %@", name, pitch.summary)
             var note = r.note
+            if MCProfileFS.inheritedNote != nil { note += "; profiles copied from the previous Minecraft version" }
             if case .applied = comfort { note += "; hud comfort defaults applied" }
             if case .applied = pitch { note += "; hud pitch moved" }
             // Turning (MCTurningPreferences.swift): the launcher's
@@ -244,6 +317,9 @@ enum MCProfiles {
         let instance = (gd as NSString).deletingLastPathComponent
         let on = MCEnv.on("KL_MC_PROFILES", default: true) && MCEnv.on("KL_MSA", default: true)
         guard on else { return gd + "/saves" }
+        // Before the first list, so the worlds of the previous Minecraft
+        // version are already there when the launcher shows them.
+        MCProfileFS.inheritPreviousVersion(instance: instance)
         let store = MSAStore.forTree(tree)
         let seed = KleptonPayload.sharesSeedWorld
         if selection == MSAStore.offline {
